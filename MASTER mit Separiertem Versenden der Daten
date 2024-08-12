@@ -152,7 +152,7 @@ void loop() {
       snprintf(test.id, sizeof(test.id), "%.3lX", rxId);
 
       char messageBuffer[128];
-      snprintf(messageBuffer, sizeof(messageBuffer), "Data: ");
+      snprintf(messageBuffer, sizeof(messageBuffer), "");
       for (byte i = 0; i < len; i++) {
         snprintf(messageBuffer + strlen(messageBuffer), sizeof(messageBuffer) - strlen(messageBuffer), " %.2X", rxBuf[i]);
       }
