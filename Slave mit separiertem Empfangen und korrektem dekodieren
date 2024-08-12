@@ -1,0 +1,228 @@
+#include "ESP32_NOW.h"
+#include "WiFi.h"
+#include <esp_mac.h>  // Für die MAC2STR und MACSTR Makros
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+#include <vector>
+
+#include <String>
+#include <math.h>
+
+
+/* Definitionen */
+
+#define ESPNOW_WIFI_CHANNEL 6
+#define TFT_CS 5
+#define TFT_RST 17
+#define TFT_DC 16
+
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+/* Definitionen */
+
+/* Klassen */
+
+// Eine neue Klasse erstellen, die von der ESP_NOW_Peer-Klasse erbt.
+
+typedef struct test_data{
+  char message[128];
+  char id[11];
+ 
+}test_data;
+
+typedef struct infos{
+  float tanklvl;
+}infos;
+
+class ESP_NOW_Peer_Class : public ESP_NOW_Peer {
+public:
+  // Konstruktor der Klasse
+  ESP_NOW_Peer_Class(const uint8_t *mac_addr, uint8_t channel, wifi_interface_t iface, const uint8_t *lmk) 
+  : ESP_NOW_Peer(mac_addr, channel, iface, lmk) {}
+
+  // Destruktor der Klasse
+  ~ESP_NOW_Peer_Class() {}
+
+  // Funktion, um den Master-Peer zu registrieren
+  bool add_peer() {
+    if (!add()) {
+      log_e("Failed to register the broadcast peer");
+      return false;
+    }
+    return true;
+  }
+
+std::vector<int> rawHexToInt(String hex) {  // Entfernen Sie das const
+    std::vector<int> coefficients;
+    size_t pos = 0;
+    String token;
+    while ((pos = hex.indexOf(' ')) != -1) {
+        token = hex.substring(0, pos);
+        coefficients.push_back(strtol(token.c_str(), nullptr, 16));
+        hex.remove(0, pos + 1);
+    }
+    if (hex.length() > 0) {
+        coefficients.push_back(strtol(hex.c_str(), nullptr, 16));
+    }
+    return coefficients;
+}
+
+float tankLvl(const String& hex) {
+    String binaries;
+    for (char c : hex) {
+        switch (c) {
+            case '0': binaries += "0000"; break;
+            case '1': binaries += "0001"; break;
+            case '2': binaries += "0010"; break;
+            case '3': binaries += "0011"; break;
+            case '4': binaries += "0100"; break;
+            case '5': binaries += "0101"; break;
+            case '6': binaries += "0110"; break;
+            case '7': binaries += "0111"; break;
+            case '8': binaries += "1000"; break;
+            case '9': binaries += "1001"; break;
+            case 'A': binaries += "1010"; break;
+            case 'B': binaries += "1011"; break;
+            case 'C': binaries += "1100"; break;
+            case 'D': binaries += "1101"; break;
+            case 'E': binaries += "1110"; break;
+            case 'F': binaries += "1111"; break;
+        }
+    }
+
+    if (binaries.length() < 51) { // 40 offset + 11 bits
+        return 204.7; // Data not available
+    }
+
+    float tankLvl = 0;
+    int coefficientValue = 1024;
+    for (int i = 40; i < 51; ++i) {
+        if (binaries[i] == '1') {
+            tankLvl += coefficientValue;
+        }
+        coefficientValue /= 2;
+    }
+
+    return tankLvl / 10;
+}
+
+
+   float decode(const char array[11], const char array2[128]) {
+    char code[4];
+    strncpy(code, array, 3);
+    code[3] = '\0';
+    infos data_input;
+    if (strcmp(code, "42E") == 0) {
+        Serial.println("Case 42E");
+        float tank = tankLvl(array2);
+        Serial.printf("Tank Level: %.1f\n", tank);
+        data_input.tanklvl= tank;
+        return tank;
+    }
+    Serial.println("No match found");
+    return 0;
+}
+
+
+
+  // Funktion, um die empfangenen Nachrichten vom Master zu drucken
+  void onReceive(const uint8_t *data, size_t len, bool broadcast) {
+    if (len == sizeof(test_data)) {
+      test_data received_data;
+      infos data_input;
+      memcpy(&received_data, data, sizeof(test_data));
+
+      tft.fillScreen(ST77XX_BLACK); // Bildschirm löschen
+      tft.setCursor(10, 10);
+      tft.printf("Received data from master " MACSTR " (%s)\n", MAC2STR(addr()), broadcast ? "broadcast" : "unicast");
+      tft.printf("  ID: %s\n  Message: %s\n", received_data.id, received_data.message);
+      data_input.tanklvl= decode(received_data.id, received_data.message);
+      tft.printf("Tanklevel=  %.1f\n", data_input.tanklvl);
+      Serial.printf("Received data from master " MACSTR " (%s)\n", MAC2STR(addr()), broadcast ? "broadcast" : "unicast");
+      Serial.printf("  ID: %s\n  Message: %s\n", received_data.id, received_data.message);
+    } 
+    else {
+      tft.fillScreen(ST77XX_BLACK); // Bildschirm löschen
+      tft.setCursor(10, 10);
+      tft.printf("Unexpected data length received\n");
+      Serial.println("Unexpected data length received");
+    }
+  }
+};
+
+/* Globale Variablen */
+
+// Liste aller Master. Diese wird beim Registrieren eines neuen Masters gefüllt.
+std::vector<ESP_NOW_Peer_Class> masters;
+
+/* Callbacks */
+
+// Callback, das aufgerufen wird, wenn ein unbekannter Peer eine Nachricht sendet
+void register_new_master(const esp_now_recv_info_t *info, const uint8_t *data, int len, void *arg) {
+  if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {
+    Serial.printf("Unknown peer " MACSTR " sent a broadcast message\n", MAC2STR(info->src_addr));
+    Serial.println("Registering the peer as a master");
+
+    ESP_NOW_Peer_Class new_master(info->src_addr, ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
+
+    masters.push_back(new_master);
+    if (!masters.back().add_peer()) {
+      Serial.println("Failed to register the new master");
+      return;
+    }
+  } else {
+    // Der Slave empfängt nur Broadcast-Nachrichten
+    log_v("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
+    log_v("Ignoriere die Nachricht");
+  }
+}
+
+/* Main */
+
+void setup() {
+  Serial.begin(115200);
+
+  tft.init(240, 280);
+  tft.setRotation(1);
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 10);
+
+  while (!Serial) {
+    delay(10);
+  }
+
+  // Initialisiere das Wi-Fi-Modul
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+  Serial.println("ESP-NOW Example - Broadcast Slave");
+  Serial.println("Wi-Fi parameters:");
+  Serial.println("  Mode: STA");
+  Serial.println("  MAC Address: " + WiFi.macAddress());
+  Serial.printf("  Channel: %d\n", ESPNOW_WIFI_CHANNEL);
+
+  // Initialisiere das ESP-NOW-Protokoll
+  if (!ESP_NOW.begin()) {
+    Serial.println("Failed to initialize ESP-NOW");
+    Serial.println("Rebooting in 5 seconds...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  // Registriere das neue Peer-Callback
+  ESP_NOW.onNewPeer(register_new_master, NULL);
+
+  Serial.println("Setup complete. Waiting for a master to broadcast a message...");
+  tft.printf("Waiting for Master...");
+}
+
+
+void loop() {
+  delay(1000);
+}
+
