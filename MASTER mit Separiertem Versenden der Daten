@@ -148,7 +148,7 @@ void loop() {
     Serial.println();
   }
 
-   if (rxId == 0x42E) {
+   if ((rxId == 0x42E)||(rxId==0x3E0)||(rxId==0x309)||(rxId==0x3EB)) {
       snprintf(test.id, sizeof(test.id), "%.3lX", rxId);
 
       char messageBuffer[128];
