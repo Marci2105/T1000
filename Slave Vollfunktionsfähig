@@ -228,7 +228,7 @@ float kilometers (String hex){
 
 int dateTime(char type, String hex){                      //für Stunden , Minuten, Sekunden, Tag, Monat, Jahr müssen die chars 'h', 'm', 's', 'D', 'M' und 'Y' angegeben werden
     std::vector<int> rawCoefficients = rawHexToInt(hex);
-    float result = 0;
+    int result = 0;      //result war vorher als float definiert
     if (type == 'h') {
         result += rawCoefficients[1]; 
         result += rawCoefficients[0]*16; 
