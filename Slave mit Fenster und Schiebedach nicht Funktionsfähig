@@ -130,7 +130,7 @@ int rawHexToBinaries(String hex, short firstBit, short lastBit) {       //benöt
             case 'F': binaries += "1111"; break;
         }
     }
-    int coefficientValue = std::pow(2, (lastBit-firstBit));
+    coefficientValue = 1 << (lastBit - firstBit);
     for (int i = firstBit; i < lastBit; ++i) {
         if (binaries[i] == '1') {
             number += coefficientValue;
