@@ -1,38 +1,28 @@
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7789.h>
-#include <SPI.h>
+#include <TFT_eSPI.h> // Include the TFT_eSPI library
 
 #include "frames.h"
 
-#define TFT_CS        5
-#define TFT_RST       17
-#define TFT_DC        16
-
-Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
-
-
+TFT_eSPI tft = TFT_eSPI();  // Create a TFT_eSPI object
 
 const int buttonPin = 32; 
 int buttonState = 0;
 int page = 2;
 
-
 void setup() {
-  Serial.begin(115200);
 
   pinMode(buttonPin, INPUT_PULLUP);
-  // Initialize the display
-  tft.init(240, 280);  // Initialize with the display size
-  tft.setSPISpeed(80000000);
-  delay(500);
-  tft.setRotation(2);            // Set the rotation if needed
-  tft.fillScreen(ST77XX_BLACK);  // Fülle den Bildschirm mit Samuel
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setTextSize(1);
-  tft.setCursor(0, 0);
-  pageTwo();
+  
+  tft.init();
+  tft.setRotation(0); // Adjust rotation if needed
+  tft.fillScreen(TFT_BLACK); // Clear the screen with black color
+  
+  tft.setTextColor(TFT_WHITE); // Set text color to white
+  tft.setTextSize(2);          // Set text size
+  tft.drawString("Hello, World!", 50, 100); // Print "Hello, World!" at (50, 100)
 
+  drawGrayscaleBitmap(0, 0, stern, 240, 280);  
 }
+
 
 
 void loop() {
@@ -55,31 +45,29 @@ void loop() {
 
 
 void pageOne() {
-  tft.fillScreen(ST77XX_BLACK); // Fülle den Bildschirm mit Samuel
-  tft.setTextColor(ST77XX_WHITE);
+  tft.fillScreen(TFT_BLACK); // Fülle den Bildschirm mit Samuel
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(3);
-  tft.setCursor(20, 20);
-  tft.print("seite 1");
+  tft.drawString("Hello, World!", 20, 20); 
   drawGrayscaleBitmap(75, 93, car, 89, 95);
 }
 
 void pageTwo() {
-  tft.setCursor(0, 0);
   drawGrayscaleBitmap(0, 0, stern, 240, 280);  
-  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(3);
-  tft.setCursor(20, 20);
-  tft.print("seite 2");
+  tft.drawString("Hello, World!", 20, 20); 
 }
 
 void pageThree() {
-  tft.fillScreen(ST77XX_BLACK); // Fülle den Bildschirm mit Samuel
-  tft.setTextColor(ST77XX_WHITE);
+  tft.fillScreen(TFT_BLACK); // Fülle den Bildschirm mit Samuel
+  tft.setTextColor(TFT_WHITE);
   tft.setTextSize(3);
-  tft.setCursor(20, 20);
-  tft.print("seite 3");
-  tft.setCursor(50, 20);
-  tft.print("abc");
+  tft.drawString("Seite 3", 20, 20); 
+  tft.setTextSize(2);
+  tft.drawString("AbC", 20, 50); 
+  tft.setTextSize(1);
+  tft.drawString("size 1", 20, 80); 
 }
 
 void showPage(int page) {
@@ -95,6 +83,7 @@ void showPage(int page) {
       break;
   }
 }
+
 
 
 void drawGrayscaleBitmap(int16_t x, int16_t y, const uint8_t *bitmap, int16_t w, int16_t h) {
@@ -114,5 +103,3 @@ uint16_t grayToRGB565(uint8_t gray) {
   uint8_t b = gray;
   return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
-
-
