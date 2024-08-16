@@ -1,0 +1,160 @@
+//Inkludierte Bibliotheken
+#include "ESP32_NOW.h"
+#include "WiFi.h"
+#include <esp_mac.h>  // Für die MAC2STR und MACSTR Makros
+#include <SPI.h>
+#include <vector>
+#include <String>
+#include <mcp_can.h>
+
+
+/* Definitions */
+//#define CAN_CS_PIN 10  // CS-Pin für den CAN-Controller, bitte entsprechend deiner Hardware anpassen
+//Channel für Kommunikation zwischen den ESP32 wird festgelegt
+#define ESPNOW_WIFI_CHANNEL 11
+// Definitionen
+#define MAX_MESSAGE_LENGTH 128
+#define CAN_MAX_DATA_LENGTH 8
+
+
+//Struct zum Speichern der versendeten Nachricht
+typedef struct test_data{
+  char message[128];
+  char id[11];
+ 
+}test_data;
+
+// Deklariere eine globale Instanz der MCP_CAN-Klasse
+//MCP_CAN CAN0(CAN_CS_PIN);  // Verwendet den angegebenen CS-Pin
+
+class ESP_NOW_Peer_Class : public ESP_NOW_Peer {
+public:
+  // Konstruktor der Klasse
+  ESP_NOW_Peer_Class(const uint8_t *mac_addr, uint8_t channel, wifi_interface_t iface, const uint8_t *lmk) 
+  : ESP_NOW_Peer(mac_addr, channel, iface, lmk) {}
+
+  // Destruktor der Klasse
+  ~ESP_NOW_Peer_Class() {}
+
+  // Funktion, um den Master-Peer zu registrieren
+  bool add_peer() {
+    if (!add()) {
+      log_e("Failed to register the broadcast peer");
+      return false;
+    }
+    return true;
+  }
+
+
+
+
+
+  // Funktion, um die empfangenen Nachrichten vom Master zu drucken
+  void onReceive(const uint8_t *data, size_t len, bool broadcast) {
+    if (len == sizeof(test_data)) {   
+        test_data received_data;
+
+        // Daten in das Struct received_data kopieren
+        memcpy(&received_data, data, sizeof(test_data));
+
+        // Angekommene Daten auf dem Serial Monitor ausgeben
+        Serial.printf("Received data from master " MACSTR " (%s)\n", MAC2STR(addr()), broadcast ? "broadcast" : "unicast");
+        Serial.printf("  ID: %s\n  Message: %s\n", received_data.id, received_data.message);
+
+        // Umwandlung des ID-Strings in eine Hexadezimalzahl
+        unsigned long can_id = strtoul(received_data.id, NULL, 16);
+        Serial.printf("CAN ID: 0x%lX\n", can_id);  // Ausgabe der CAN-ID als Hexadezimalwert mit 0x
+
+        // Umwandlung der empfangenen Nachricht in ein Byte-Array mit Hexadezimalwerten
+        byte Canbotschaft[8];
+        // Nachricht wird in Teile aufgespalten, die Hex-Werte werden interpretiert und in das Byte-Array eingefügt
+        for (int i = 0; i < 8; i++) {
+            char byte_string[3] = {received_data.message[3*i], received_data.message[3*i + 1], '\0'};
+            Canbotschaft[i] = (byte) strtoul(byte_string, NULL, 16);
+            Serial.printf("CAN Byte %d: 0x%02X\n", i, Canbotschaft[i]);  // Ausgabe der Byte-Werte als Hexadezimal mit 0x
+        }
+/*
+        // Senden der Nachricht über den CAN-Bus
+        if (CAN0.sendMsgBuf(can_id, 0, 8, Canbotschaft) == CAN_OK) {
+            Serial.println("Message sent successfully over CAN Bus");
+        } else {
+            Serial.println("Failed to send message over CAN Bus");
+        }*/
+    } else {
+        // Fehlernachricht bei unerwarteter Datenlänge
+        Serial.println("Unexpected data length received");
+    }
+}
+};
+
+// Liste aller Master. Diese wird beim Registrieren eines neuen Masters gefüllt.
+std::vector<ESP_NOW_Peer_Class> masters;
+
+// Callback, das aufgerufen wird, wenn ein unbekannter Peer eine Nachricht sendet
+void register_new_master(const esp_now_recv_info_t *info, const uint8_t *data, int len, void *arg) {
+  if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {
+    //Serial.printf("Unknown peer " MACSTR " sent a broadcast message\n", MAC2STR(info->src_addr));
+    //Serial.println("Registering the peer as a master");
+
+    ESP_NOW_Peer_Class new_master(info->src_addr, ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
+
+    masters.push_back(new_master);
+    if (!masters.back().add_peer()) {
+      Serial.println("Failed to register the new master");
+      return;
+    }
+  } else {
+    // Der Slave empfängt nur Broadcast-Nachrichten
+    log_v("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
+    log_v("Ignoriere die Nachricht");
+  }
+}
+
+//Setup wird definiert
+void setup() {
+  Serial.begin(115200);
+
+  while (!Serial) {
+    delay(10);
+  }
+/*
+  if (CAN0.begin(MCP_NORMAL, CAN_250KBPS, MCP_8MHZ) == CAN_OK) {
+    Serial.printf("CAN BUS Shield init OK!\n");
+  } else {
+    Serial.printf("CAN BUS Shield init FAIL\n");
+    while (1);
+  }
+*/
+  // Initialisiere das Wi-Fi-Modul
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+  Serial.println("ESP-NOW Example - Broadcast Slave");
+  Serial.println("Wi-Fi parameters:");
+  Serial.println("  Mode: STA");
+  Serial.println("  MAC Address: " + WiFi.macAddress());
+  Serial.printf("  Channel: %d\n", ESPNOW_WIFI_CHANNEL);
+
+  // Initialisiere das ESP-NOW-Protokoll
+  if (!ESP_NOW.begin()) {
+    Serial.println("Failed to initialize ESP-NOW");
+    Serial.println("Rebooting in 5 seconds...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  // Registriere das neue Peer-Callback
+  ESP_NOW.onNewPeer(register_new_master, NULL);
+
+  Serial.println("Setup complete. Waiting for a master to broadcast a message...");
+}
+
+
+
+//Loop wird gestartet
+void loop() {
+  delay(5000);
+}
