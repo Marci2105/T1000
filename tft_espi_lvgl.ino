@@ -1,6 +1,7 @@
 #include <TFT_eSPI.h>
 #include <SPI.h>
 #include <lvgl.h>
+#include <iostream>
 
 #include "frames.h"
 
@@ -15,7 +16,9 @@ int page = 2;
 
 lv_obj_t *labelPageName = NULL;
 
-lv_obj_t * objectArray = NULL;
+//[0] = labelPageName
+//[1] = barChart
+lv_obj_t * objectArray[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
 
 
 TFT_eSPI tft = TFT_eSPI(); /* TFT entity */
@@ -37,11 +40,16 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
   lv_disp_flush_ready(disp);
 }
 
+//interrupt function von dem Button
+void IRAM_ATTR handleInterrupt() {
+    Serial.println("Interrupt occurred!");
+} 
+
 void setup() {
   Serial.begin(9600); /*serial init */
 
   pinMode(buttonPin, INPUT_PULLUP);
-  //attachInterrupt(digitalPinToInterrupt(buttonPin), handleInterrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(buttonPin), handleInterrupt, RISING);
 
   //LCD init
   tft.begin();
@@ -74,7 +82,7 @@ void setup() {
 
   drawGrayscaleBitmap(0, 0, stern, 240, 280);
 
-  stdOverlay();
+  stdOverlay(2);
 
   //overlay();
   createPageName();
@@ -101,14 +109,10 @@ void loop() {
   }
 }
 
-/*interrupt function von dem Button
-void IRAM_ATTR handleInterrupt() {
-    Serial.println("Interrupt occurred!");
-} */
 
 
 // was immer angezeigt wird
-void stdOverlay() {
+void stdOverlay(int page) {
 
   lv_obj_t *containerOben = lv_obj_create(lv_scr_act());
   lv_obj_set_size(containerOben, 250, 40);
@@ -139,13 +143,18 @@ void stdOverlay() {
     lv_obj_set_size(point, 10, 10);
     lv_obj_align(point, LV_ALIGN_LEFT_MID, ((containerUntenBreite) / numPoint) * i, 0);
     lv_obj_set_style_radius(point, 10 / 2, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(point, lv_color_white(), LV_PART_MAIN);
+    if (i+1 == page) {
+      lv_obj_set_style_bg_color(point, lv_color_hex(0x0000ff), LV_PART_MAIN);
+    } else {
+      lv_obj_set_style_bg_color(point, lv_color_white(), LV_PART_MAIN);
+    }
     lv_obj_set_style_bg_opa(point, LV_OPA_COVER, LV_PART_MAIN);
   }
 }
 
 void createPageName() {
   labelPageName = lv_label_create(lv_scr_act());
+  objectArray[0] = labelPageName;
   lv_obj_set_style_transform_angle(labelPageName, 900, LV_PART_MAIN);
   lv_obj_align(labelPageName, LV_ALIGN_LEFT_MID, 20, 0);
   lv_obj_set_style_text_color(labelPageName, lv_color_hex(0x0000ff), LV_PART_MAIN);
@@ -154,15 +163,15 @@ void createPageName() {
 
 
 void pageName(const char *seitenName) {
-  lv_label_set_text(labelPageName, seitenName);
+  lv_label_set_text(objectArray[0], seitenName);
 }
 
-lv_obj_t * barChart() {
+lv_obj_t * barChart(int fuellstand) {
   lv_obj_t *bar = lv_bar_create(lv_scr_act());  // Create a bar object on the active screen
   lv_obj_set_size(bar, 150, 20);                // Set the size of the bar (width, height)
-  lv_obj_align(bar, LV_ALIGN_CENTER, 0, 0);     // Align the bar to the center of the screen
+  lv_obj_align(bar, LV_ALIGN_CENTER, 0, 80);     // Align the bar to the center of the screen
 
-  lv_bar_set_value(bar, 70, LV_ANIM_OFF);
+  lv_bar_set_value(bar, fuellstand, LV_ANIM_OFF);
   return bar;
 }
 
@@ -174,41 +183,37 @@ void clearBitmap(int sizeX, int sizeY, int posX, int posY) {
   }
 }
 
-lv_obj_t * pageOne() {
-  stdOverlay();
+void pageOne() {
   int fuellstand = 20;
-  lv_obj_t * barPtr = barChart();
-  pageName("Tankfuellstand");
-  return barPtr;
+  drawGrayscaleBitmap(74, 63, tank, 114, 133);
+  objectArray[1] = barChart(fuellstand);
+  pageName("Seite 1");
 }
 
 void pageTwo() {
-  stdOverlay();
-  pageName("seite 2");
+  clearBitmap(114, 133, 74, 63);
+  lv_obj_del(objectArray[1]);
+  objectArray[1] = NULL;
+  lv_timer_handler();
+  pageName("Seite 2");
   drawGrayscaleBitmap(75, 93, car, 89, 95);
 }
 
 void pageThree() {
-  stdOverlay();
-  pageName("seite 3");
+  pageName("Seite 3");
   clearBitmap(89, 95, 75, 93);
-  // Fülle den Bildschirm mit Samuel
-  tft.setTextColor(TFT_BLACK);
-  tft.setTextSize(3);
-  tft.drawString("Seite 3", 20, 20);
-  tft.setTextSize(2);
-  tft.drawString("AbC", 20, 50);
-  tft.setTextSize(1);
-  tft.drawString("size 1", 20, 80);
 }
 
 void pageFour() {
-  stdOverlay();
-  pageName("seite 4");
+  pageName("Seite 4");
+}
+
+void updatePoints() {
+
 }
 
 void showPage(int page) {
-
+  stdOverlay(page);
   if (page == 1) {
     pageOne();
   } else if (page == 2) {
