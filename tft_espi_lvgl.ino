@@ -18,7 +18,11 @@ lv_obj_t *labelPageName = NULL;
 
 //[0] = labelPageName
 //[1] = barChart
-lv_obj_t * objectArray[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
+//[2] = labelRange
+//[3] = containerOben
+//[4] = containerUnten
+//[5] = labelAvg
+lv_obj_t *objectArray[6] = { NULL, NULL, NULL, NULL, NULL, NULL };
 
 
 TFT_eSPI tft = TFT_eSPI(); /* TFT entity */
@@ -26,7 +30,6 @@ TFT_eSPI tft = TFT_eSPI(); /* TFT entity */
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf1[screenWidth * screenHeight / 13];
 
-//_______________________
 /* display flash */
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
   uint32_t w = (area->x2 - area->x1 + 1);
@@ -42,8 +45,8 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
 
 //interrupt function von dem Button
 void IRAM_ATTR handleInterrupt() {
-    Serial.println("Interrupt occurred!");
-} 
+  Serial.println("Interrupt occurred!");
+}
 
 void setup() {
   Serial.begin(9600); /*serial init */
@@ -120,6 +123,7 @@ void stdOverlay(int page) {
   lv_obj_set_style_bg_color(containerOben, lv_color_hex(0x0000ff), LV_PART_MAIN);  // Set background color to red
   lv_obj_set_style_bg_opa(containerOben, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
 
+  objectArray[3] = containerOben;
   // Label Oben 1 in Container Oben
   lv_obj_t *labelO1 = lv_label_create(containerOben);
   lv_label_set_text(labelO1, "CLS 450 4 Matic");
@@ -134,6 +138,8 @@ void stdOverlay(int page) {
   lv_obj_set_style_bg_color(containerUnten, lv_color_hex(0x909090), LV_PART_MAIN);  // Set background color to red
   lv_obj_set_style_bg_opa(containerUnten, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
 
+  objectArray[4] = containerUnten;
+
   const int numPoint = 4;
   const int sizePoint = 10;
   const int sizeSpace = 15;
@@ -143,7 +149,7 @@ void stdOverlay(int page) {
     lv_obj_set_size(point, 10, 10);
     lv_obj_align(point, LV_ALIGN_LEFT_MID, ((containerUntenBreite) / numPoint) * i, 0);
     lv_obj_set_style_radius(point, 10 / 2, LV_PART_MAIN);
-    if (i+1 == page) {
+    if (i + 1 == page) {
       lv_obj_set_style_bg_color(point, lv_color_hex(0x0000ff), LV_PART_MAIN);
     } else {
       lv_obj_set_style_bg_color(point, lv_color_white(), LV_PART_MAIN);
@@ -166,10 +172,10 @@ void pageName(const char *seitenName) {
   lv_label_set_text(objectArray[0], seitenName);
 }
 
-lv_obj_t * barChart(int fuellstand) {
+lv_obj_t *barChart(int fuellstand) {
   lv_obj_t *bar = lv_bar_create(lv_scr_act());  // Create a bar object on the active screen
   lv_obj_set_size(bar, 150, 20);                // Set the size of the bar (width, height)
-  lv_obj_align(bar, LV_ALIGN_CENTER, 0, 80);     // Align the bar to the center of the screen
+  lv_obj_align(bar, LV_ALIGN_CENTER, 0, 80);    // Align the bar to the center of the screen
 
   lv_bar_set_value(bar, fuellstand, LV_ANIM_OFF);
   return bar;
@@ -202,17 +208,46 @@ void pageTwo() {
 void pageThree() {
   pageName("Seite 3");
   clearBitmap(89, 95, 75, 93);
+  drawGrayscaleBitmap(40, 50, range, 60, 60);
+  drawGrayscaleBitmap(40, 150, avg, 60, 60);
+
+  //style für label
+  static lv_style_t style;
+  lv_style_init(&style);
+  lv_style_set_text_font(&style, &lv_font_montserrat_20);  // Set the font to Montserrat 28
+
+  // Apply the style to the label
+  //label
+  lv_obj_t *labelRange = lv_label_create(lv_scr_act());
+  objectArray[2] = labelRange;
+  lv_obj_align(labelRange, LV_ALIGN_TOP_LEFT, 110, 70);
+  lv_obj_set_style_text_color(labelRange, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_label_set_text(labelRange, "hier Range");
+
+  lv_obj_t *labelAvg = lv_label_create(lv_scr_act());
+  objectArray[5] = labelAvg;
+  lv_obj_align(labelAvg, LV_ALIGN_TOP_LEFT, 110, 170);
+  lv_obj_set_style_text_color(labelAvg, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_label_set_text(labelAvg, "hier avg");
+
+  lv_obj_add_style(labelRange, &style, LV_PART_MAIN);
+  lv_obj_add_style(labelAvg, &style, LV_PART_MAIN);
 }
 
 void pageFour() {
   pageName("Seite 4");
-}
-
-void updatePoints() {
+  lv_obj_del(objectArray[2]);
+  lv_obj_del(objectArray[5]);
+  clearBitmap(60, 60, 40, 50);
+  clearBitmap(60, 60, 40, 150);
 
 }
 
 void showPage(int page) {
+  lv_obj_del(objectArray[3]);
+  objectArray[3] = NULL;
+  lv_obj_del(objectArray[4]);
+  objectArray[4] = NULL;
   stdOverlay(page);
   if (page == 1) {
     pageOne();
@@ -220,7 +255,7 @@ void showPage(int page) {
     pageTwo();
   } else if (page == 3) {
     pageThree();
-  } else if (page == 4){
+  } else if (page == 4) {
     pageFour();
   }
 
