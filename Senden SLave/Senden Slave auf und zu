@@ -1,0 +1,187 @@
+//Inkludierte Bibliotheken
+#include "ESP32_NOW.h"
+#include "WiFi.h"
+#include <esp_mac.h>  // Für die MAC2STR und MACSTR Makros
+#include <SPI.h>
+#include <vector>
+#include <String>
+#include <mcp_can.h>
+
+
+/* Definitions */
+#define CAN_CS_PIN 5  // CS-Pin für den CAN-Controller, bitte entsprechend deiner Hardware anpassen
+//Channel für Kommunikation zwischen den ESP32 wird festgelegt
+#define ESPNOW_WIFI_CHANNEL 11
+// Definitionen
+#define MAX_MESSAGE_LENGTH 128
+#define CAN_MAX_DATA_LENGTH 8
+
+//Array mit Befehl Schiebedach zu schließen
+byte data_Schiebedach[8] = {0x00, 0x2A, 0x0F, 0x00, 0xA0, 0xA8, 0xDA, 0x03};
+byte data_unlock[8]= {0x00, 0x22, 0x22, 0xAA, 0x01, 0x00, 0x00, 0x00};
+byte data_lock[8]= {0x00, 0x11, 0x11, 0x55, 0x01, 0x00, 0x00, 0x00};
+
+//Struct zum Speichern der versendeten Nachricht
+typedef struct test_data{
+  //Verschlüsselung für Dach
+  char message[128];
+  char id[11];
+ 
+}test_data;
+
+// Deklariere eine globale Instanz der MCP_CAN-Klasse
+MCP_CAN CAN0(CAN_CS_PIN);  // Verwendet den angegebenen CS-Pin
+
+class ESP_NOW_Peer_Class : public ESP_NOW_Peer {
+public:
+  // Konstruktor der Klasse
+  ESP_NOW_Peer_Class(const uint8_t *mac_addr, uint8_t channel, wifi_interface_t iface, const uint8_t *lmk) 
+  : ESP_NOW_Peer(mac_addr, channel, iface, lmk) {}
+
+  // Destruktor der Klasse
+  ~ESP_NOW_Peer_Class() {}
+
+  // Funktion, um den Master-Peer zu registrieren
+  bool add_peer() {
+    if (!add()) {
+      log_e("Failed to register the broadcast peer");
+      return false;
+    }
+    return true;
+  }
+
+
+
+
+
+  // Funktion, um die empfangenen Nachrichten vom Master zu drucken
+  void onReceive(const uint8_t *data, size_t len, bool broadcast) {
+  byte data_can[8];
+  byte id;
+  byte sndStat;
+    if (len == sizeof(test_data)) {   
+        test_data received_data;
+       
+
+        // Daten in das Struct received_data kopieren
+        memcpy(&received_data, data, sizeof(test_data));
+
+        // Angekommene Daten auf dem Serial Monitor ausgeben
+        Serial.printf("Received data from master " MACSTR " (%s)\n", MAC2STR(addr()), broadcast ? "broadcast" : "unicast");
+        Serial.printf("  ID: %s\n  Message: %s\n", received_data.id, received_data.message);
+
+        /************************schließen Schiebedach***************************************************/
+        if( ((strcmp(received_data.id,"16F")==0) )&& (((strcmp(received_data.message, "0080"))==0))){
+          Serial.printf("Nachricht Fenster empfangen\n");
+      
+        // Senden der Nachricht über den CAN-Bus
+        sndStat = CAN0.sendMsgBuf(0x16F, 0, 8, data_Schiebedach);
+        if(sndStat == CAN_OK){
+          Serial.println("Message Sent Successfully!");
+        } else {
+          Serial.println("Error Sending Message...");
+        }
+        }
+        /**************************************Öffnen Auto**************************************************/
+         if( ((strcmp(received_data.id,"307")==0) )&& (((strcmp(received_data.message, "0001"))==0))){
+          Serial.printf("Nachricht Fenster empfangen\n");
+      
+        // Senden der Nachricht über den CAN-Bus
+        sndStat = CAN0.sendMsgBuf(0x307, 0, 8, data_unlock);
+        if(sndStat == CAN_OK){
+          Serial.println("Message Sent Successfully!");
+        } else {
+          Serial.println("Error Sending Message...");
+        }
+        }
+        /*******************************************Schließen Auto********************************************/
+         if( ((strcmp(received_data.id,"307")==0) )&& (((strcmp(received_data.message, "0002"))==0))){
+          Serial.printf("Nachricht Fenster empfangen\n");
+      
+        // Senden der Nachricht über den CAN-Bus
+        sndStat = CAN0.sendMsgBuf(0x307, 0, 8, data_lock);
+        if(sndStat == CAN_OK){
+          Serial.println("Message Sent Successfully!");
+        } else {
+          Serial.println("Error Sending Message...");
+        }
+        }
+
+        
+    } else {
+        // Fehlernachricht bei unerwarteter Datenlänge
+        Serial.println("Unexpected data length received");
+    }
+
+}
+};
+
+// Liste aller Master. Diese wird beim Registrieren eines neuen Masters gefüllt.
+std::vector<ESP_NOW_Peer_Class> masters;
+
+// Callback, das aufgerufen wird, wenn ein unbekannter Peer eine Nachricht sendet
+void register_new_master(const esp_now_recv_info_t *info, const uint8_t *data, int len, void *arg) {
+  if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {
+    //Serial.printf("Unknown peer " MACSTR " sent a broadcast message\n", MAC2STR(info->src_addr));
+    //Serial.println("Registering the peer as a master");
+
+    ESP_NOW_Peer_Class new_master(info->src_addr, ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
+
+    masters.push_back(new_master);
+    if (!masters.back().add_peer()) {
+      Serial.println("Failed to register the new master");
+      return;
+    }
+  } else {
+    // Der Slave empfängt nur Broadcast-Nachrichten
+    log_v("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
+    log_v("Ignoriere die Nachricht");
+  }
+}
+
+//Setup wird definiert
+void setup() {
+  Serial.begin(115200);
+
+  while (!Serial) {
+    delay(10);
+  }
+
+  if(CAN0.begin(MCP_ANY, CAN_250KBPS, MCP_8MHZ) == CAN_OK) Serial.printf("MCP2515 Initialized Successfully!\n");
+  else Serial.println("Error Initializing MCP2515...");
+
+  CAN0.setMode(MCP_NORMAL);   // Change to normal mode to allow messages to be transmitted
+
+  // Initialisiere das Wi-Fi-Modul
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+  Serial.println("ESP-NOW Example - Broadcast Slave");
+  Serial.println("Wi-Fi parameters:");
+  Serial.println("  Mode: STA");
+  Serial.println("  MAC Address: " + WiFi.macAddress());
+  Serial.printf("  Channel: %d\n", ESPNOW_WIFI_CHANNEL);
+
+  // Initialisiere das ESP-NOW-Protokoll
+  if (!ESP_NOW.begin()) {
+    Serial.println("Failed to initialize ESP-NOW");
+    Serial.println("Rebooting in 5 seconds...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  // Registriere das neue Peer-Callback
+  ESP_NOW.onNewPeer(register_new_master, NULL);
+
+  Serial.println("Setup complete. Waiting for a master to broadcast a message...");
+}
+
+
+
+//Loop wird gestartet
+void loop() {
+  delay(5000);
+}
