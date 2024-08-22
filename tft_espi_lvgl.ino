@@ -90,7 +90,8 @@ void setup() {
 
   pageHome();
 
-  lv_timer_handler();
+  lv_timer_handler(); 
+  lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
 
   Serial.println("Setup done");
 }
@@ -261,6 +262,8 @@ void pageFour() {
   pageName("Meldungen");
 }
 
+
+
 void pageActions() {
   pageName("Aktionen");
   lv_obj_t *labelActions = lv_label_create(lv_scr_act());
@@ -274,14 +277,49 @@ void pageDriversLog() {
   pageName("Fahrtbuch");
   lv_obj_del(objectArray[6]);
   objectArray[6] = NULL;
+
+  static lv_style_t style_cont;
+  lv_style_init(&style_cont);
+  lv_style_set_border_color(&style_cont, lv_color_hex(0x0000ff));  // Setzt die Umrandungsfarbe auf Rot
+  lv_style_set_border_width(&style_cont, 2);                       // Setzt die Breite der Umrandung auf 3 Pixel
+
+  static lv_style_t style_mainCont;
+  lv_style_init(&style_mainCont);
+  lv_style_set_border_color(&style_mainCont, lv_color_hex(0xffffff));  // Setzt die Umrandungsfarbe auf Rot
+  lv_style_set_border_width(&style_mainCont, 0);                       // Setzt die Breite der Umrandung auf 3 Pixel
+
+  lv_obj_t *main_cont = lv_obj_create(lv_scr_act());
+  lv_obj_set_size(main_cont, 210, 240);                // Größe anpassen
+  lv_obj_add_style(main_cont, &style_mainCont, 0);     // Stil anwenden
+  lv_obj_align(main_cont, LV_ALIGN_TOP_LEFT, 25, 35);
+   lv_obj_clear_flag(main_cont, LV_OBJ_FLAG_SCROLLABLE);  // Positionierung innerhalb des nutzbaren Bereichs
+
+  // Erster Container
+  lv_obj_t *cont1 = lv_obj_create(main_cont);
+  lv_obj_set_size(cont1, 200, 110);         // Breite und Höhe anpassen
+  lv_obj_add_style(cont1, &style_cont, 0);  // Stil anwenden
+  lv_obj_align(cont1, LV_ALIGN_TOP_MID, 0, -13);
+
+  // Labels für Container 1
+  lv_obj_t *label1 = lv_label_create(cont1);
+  lv_label_set_text(label1, "Fahrtnr: 1\nStartUhrzeit: 08:00\nEndUhrzeit: 10:00\nkm: 25\nTankfuellstand: 75%");
+  lv_obj_align(label1, LV_ALIGN_CENTER, 0, 0);
+
+  // Zweiter Container
+  lv_obj_t *cont2 = lv_obj_create(main_cont);
+  lv_obj_set_size(cont2, 200, 110);         // Breite und Höhe anpassen
+  lv_obj_add_style(cont2, &style_cont, 0);  // Stil anwenden
+  lv_obj_align(cont2, LV_ALIGN_BOTTOM_MID, 0, -9);
+
+  // Labels für Container 2
+  lv_obj_t *label2 = lv_label_create(cont2);
+  lv_label_set_text(label2, "Fahrtnr: 2\nStartUhrzeit: 12:00\nEndUhrzeit: 14:00\nkm: 50\nTankfuellstand: 60%");
+  lv_obj_align(label2, LV_ALIGN_CENTER, 0, 0);
 }
 
 void showPage(int page) {
-  lv_obj_del(objectArray[3]);
   objectArray[3] = NULL;
-  lv_obj_del(objectArray[4]);
   objectArray[4] = NULL;
-  stdOverlay(page);
   if (page == 0) {
     pageHome();
   } else if (page == 1) {
@@ -297,6 +335,8 @@ void showPage(int page) {
   } else if (page == 6) {
     pageDriversLog();
   }
+
+  stdOverlay(page);
 
   lv_timer_handler();
 }
