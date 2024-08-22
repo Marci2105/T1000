@@ -1,0 +1,119 @@
+#include "ESP32_NOW.h"
+#include "WiFi.h"
+
+#include <esp_mac.h>  // For the MAC2STR and MACSTR macros
+#include <mcp_can.h>
+#include <SPI.h>
+
+long unsigned int rxId;
+unsigned char len = 0;
+unsigned char rxBuf[8];
+char msgString[128];  // Array zur Speicherung des seriellen Strings
+
+#define CAN0_INT 4        // Set INT auf GPIO 4 (Interrupt-Pin)
+MCP_CAN CAN0(5);          // Set CS auf GPIO 5 (Chip Select Pin)
+
+#define ESPNOW_WIFI_CHANNEL 6
+
+typedef struct test_data{
+  char message[128];
+  char id[11];
+}test_data;
+
+
+class ESP_NOW_Broadcast_Peer : public ESP_NOW_Peer {
+public:
+  // Constructor of the class using the broadcast address
+  ESP_NOW_Broadcast_Peer(uint8_t channel, wifi_interface_t iface, const uint8_t *lmk) : ESP_NOW_Peer(ESP_NOW.BROADCAST_ADDR, channel, iface, lmk) {}
+
+  // Destructor of the class
+  ~ESP_NOW_Broadcast_Peer() {
+    remove();
+  }
+
+  // Function to properly initialize the ESP-NOW and register the broadcast peer
+  bool begin() {
+    if (!ESP_NOW.begin() || !add()) {
+      log_e("Failed to initialize ESP-NOW or register the broadcast peer");
+      return false;
+    }
+    return true;
+  }
+
+  // Function to send a message to all devices within the network
+  bool send_message(const uint8_t *data, size_t len) {
+    if (!send(data, len)) {
+      log_e("Failed to broadcast message");
+      return false;
+    }
+    return true;
+  }
+};
+
+uint32_t msg_count = 0;
+
+// Create a broadcast peer object
+ESP_NOW_Broadcast_Peer broadcast_peer(ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
+
+void setup() {
+  Serial.begin(115200);
+  while (!Serial) {
+    delay(10);
+  }
+
+  // Initialize the Wi-Fi module
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+
+  // Register the broadcast peer
+  if (!broadcast_peer.begin()) {
+    delay(5000);
+    ESP.restart();
+  }
+  
+  // Initialisiere MCP2515 bei 8MHz mit einer Baudrate von 250kb/s
+  if(CAN0.begin(MCP_ANY, CAN_250KBPS, MCP_8MHZ) == CAN_OK) {} 
+  
+  CAN0.setMode(MCP_NORMAL);  //A Setze den Betriebsmodus auf "normal", damit der MCP2515 ACKs sendet
+
+  pinMode(CAN0_INT, INPUT);  // Konfiguriere den Interrupt-Pin als Eingang
+}
+
+void loop() {
+  // Broadcast a message to all devices within the network
+  test_data test;
+
+ if (!digitalRead(CAN0_INT)) {  // Wenn der CAN0_INT-Pin niedrig ist, lese den Empfangspuffer aus
+    CAN0.readMsgBuf(&rxId, &len, rxBuf);  // Lese Daten: len = Datenlänge, buf = Datenbyte(s)
+    if ((rxId & 0x80000000) == 0x80000000)  // Bestimme, ob die ID Standard (11 Bit) oder erweitert (29 Bit) ist
+      sprintf(msgString, "Erweiterte ID: %.8lX  DLC: %1d  Daten:", (rxId & 0x1FFFFFFF), len);
+    else
+      sprintf(msgString, "Standard ID: %.3lX       DLC: %1d  Daten:", rxId, len);
+
+    if ((rxId & 0x40000000) == 0x40000000) {  // Bestimme, ob die Nachricht ein Remote Request Frame ist
+      sprintf(msgString, " REMOTE REQUEST FRAME");
+    }
+    else {
+      for (byte i = 0; i < len; i++) {
+        sprintf(msgString, " %.2X", rxBuf[i]);
+      }
+    }
+  }
+
+   if ((rxId == 0x42E)||(rxId==0x3E0)||(rxId==0x309)||(rxId==0x3EB)||(rxId==0x35D)||(rxId==0x328)||(rxId==0x320)||(rxId==0x32E)||(rxId==0x31A)||(rxId==0x2FB)||(rxId==0x176)) {
+      snprintf(test.id, sizeof(test.id), "%.3lX", rxId);
+
+      char messageBuffer[128];
+      snprintf(messageBuffer, sizeof(messageBuffer), "");
+      for (byte i = 0; i < len; i++) {
+        snprintf(messageBuffer + strlen(messageBuffer), sizeof(messageBuffer) - strlen(messageBuffer), " %.2X", rxBuf[i]);
+      }
+      snprintf(test.message, sizeof(test.message), "%s", messageBuffer);
+      
+      if (!broadcast_peer.send_message((uint8_t *)&test, sizeof(test))) {}
+  }
+}
