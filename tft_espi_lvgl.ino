@@ -11,7 +11,7 @@ static const uint16_t screenHeight = 280;
 
 const int buttonPin = 32;
 int buttonState = 0;
-int page = 2;
+int page = 0;
 
 
 //[0] = labelPageName
@@ -20,7 +20,8 @@ int page = 2;
 //[3] = containerOben
 //[4] = containerUnten
 //[5] = labelAvg
-lv_obj_t *objectArray[6] = { NULL, NULL, NULL, NULL, NULL, NULL };
+//[6] = labelActions
+lv_obj_t *objectArray[7] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 
 
 TFT_eSPI tft = TFT_eSPI(); /* TFT entity */
@@ -82,11 +83,12 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
 
   drawGrayscaleBitmap(0, 0, stern, 240, 280);
-
-  stdOverlay(2);
+  stdOverlay(0);
 
   //overlay();
   createPageName();
+
+  pageHome();
 
   lv_timer_handler();
 
@@ -98,10 +100,10 @@ void loop() {
   buttonState = digitalRead(buttonPin);
 
   if (buttonState == LOW) {
-    delay(200);
+    delay(300);
     if (buttonState == LOW) {
-      if (page >= 4) {
-        page = 1;
+      if (page >= 6) {
+        page = 0;
       } else {
         page += 1;
       }
@@ -109,6 +111,7 @@ void loop() {
     }
   }
   lv_timer_handler();
+  delay(10);
 }
 
 
@@ -117,7 +120,7 @@ void loop() {
 void stdOverlay(int page) {
 
   lv_obj_t *containerOben = lv_obj_create(lv_scr_act());
-  lv_obj_set_size(containerOben, 250, 40);
+  lv_obj_set_size(containerOben, 250, 30);
   lv_obj_align(containerOben, LV_ALIGN_TOP_MID, 0, -5);
   lv_obj_set_style_bg_color(containerOben, lv_color_hex(0x0000ff), LV_PART_MAIN);  // Set background color to red
   lv_obj_set_style_bg_opa(containerOben, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
@@ -131,25 +134,25 @@ void stdOverlay(int page) {
   const int containerUntenBreite = 150;
   // container mit Punkten unten
   lv_obj_t *containerUnten = lv_obj_create(lv_scr_act());
-  lv_obj_set_size(containerUnten, containerUntenBreite, 40);
+  lv_obj_set_size(containerUnten, containerUntenBreite, 20);
   lv_obj_align(containerUnten, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_radius(containerUnten, 20, LV_PART_MAIN);
+  lv_obj_set_style_radius(containerUnten, 10, LV_PART_MAIN);
   lv_obj_set_style_bg_color(containerUnten, lv_color_hex(0x909090), LV_PART_MAIN);  // Set background color to red
   lv_obj_set_style_bg_opa(containerUnten, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
 
   objectArray[4] = containerUnten;
 
-  const int numPoint = 4;
+  const int numPoint = 7;
   const int sizePoint = 10;
-  const int sizeSpace = 15;
+  const int sizeSpace = (containerUntenBreite - 25 * (numPoint - 1) - 10) / 2;
   // Label in container unten
   for (int i = 0; i < numPoint; i++) {
     lv_obj_t *point = lv_btn_create(containerUnten);  // Punkt als Button erstellen
     lv_obj_set_size(point, 10, 10);
-    lv_obj_align(point, LV_ALIGN_LEFT_MID, ((containerUntenBreite) / numPoint) * i, 0);
+    lv_obj_align(point, LV_ALIGN_LEFT_MID, 10 + i * 15, 0);
     lv_obj_set_style_radius(point, 10 / 2, LV_PART_MAIN);
-    if (i + 1 == page) {
-      lv_obj_set_style_bg_color(point, lv_color_hex(0x0000ff), LV_PART_MAIN);
+    if (i == page) {
+      lv_obj_set_style_bg_color(point, lv_color_hex(0x000000), LV_PART_MAIN);
     } else {
       lv_obj_set_style_bg_color(point, lv_color_white(), LV_PART_MAIN);
     }
@@ -191,28 +194,27 @@ void tuerenAnpassen() {
   int vorneLinks = 0;
   int vorneRechts = 0;
 }
+void pageHome() {
+  //  drawGrayscaleBitmap(30,100,home_car,180,90);
+  pageName("Home");
+}
 
 void pageOne() {
+  clearBitmap(180, 90, 30, 100);
   int fuellstand = 20;
   drawGrayscaleBitmap(74, 63, tank, 114, 133);
   objectArray[1] = barChart(fuellstand);
   pageName("Seite 1");
 }
 
+
 void pageTwo() {
   clearBitmap(114, 133, 74, 63);
   lv_obj_del(objectArray[1]);
   objectArray[1] = NULL;
-  lv_timer_handler();
   pageName("Seite 2");
-  drawGrayscaleBitmap(60, 40, car_close, 124, 208);
-  draw8BitRGBBitmap(100, 100, vorneLinks, 20, 53);
-
-}
-
-void pageThree() {
-  pageName("Seite 3");
-  clearBitmap(89, 95, 75, 93);
+  lv_timer_handler();
+  delay(5);
   drawGrayscaleBitmap(40, 50, range, 60, 60);
   drawGrayscaleBitmap(40, 150, avg, 60, 60);
 
@@ -239,13 +241,39 @@ void pageThree() {
   lv_obj_add_style(labelAvg, &style, LV_PART_MAIN);
 }
 
-void pageFour() {
-  pageName("Seite 4");
-  lv_obj_del(objectArray[2]);
-  lv_obj_del(objectArray[5]);
+void pageThree() {
   clearBitmap(60, 60, 40, 50);
   clearBitmap(60, 60, 40, 150);
+  if (objectArray[2] != NULL) {
+    lv_obj_del(objectArray[2]);
+    objectArray[2] = NULL;
+    lv_obj_del(objectArray[5]);
+    objectArray[5] = NULL;
+  }
+  lv_timer_handler();
+  pageName("Seite 3");
+  drawGrayscaleBitmap(60, 40, car_close, 124, 208);
+  draw8BitRGBBitmap(100, 100, vorneLinks, 20, 53);
+}
 
+void pageFour() {
+  clearBitmap(124, 208, 60, 40);
+  pageName("Meldungen");
+}
+
+void pageActions() {
+  pageName("Aktionen");
+  lv_obj_t *labelActions = lv_label_create(lv_scr_act());
+  objectArray[6] = labelActions;
+  lv_obj_align(labelActions, LV_ALIGN_TOP_LEFT, 50, 100);
+  lv_obj_set_style_text_color(labelActions, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_label_set_text(labelActions, "zeige hier Aktionen an");
+}
+
+void pageDriversLog() {
+  pageName("Fahrtbuch");
+  lv_obj_del(objectArray[6]);
+  objectArray[6] = NULL;
 }
 
 void showPage(int page) {
@@ -254,7 +282,9 @@ void showPage(int page) {
   lv_obj_del(objectArray[4]);
   objectArray[4] = NULL;
   stdOverlay(page);
-  if (page == 1) {
+  if (page == 0) {
+    pageHome();
+  } else if (page == 1) {
     pageOne();
   } else if (page == 2) {
     pageTwo();
@@ -262,6 +292,10 @@ void showPage(int page) {
     pageThree();
   } else if (page == 4) {
     pageFour();
+  } else if (page == 5) {
+    pageActions();
+  } else if (page == 6) {
+    pageDriversLog();
   }
 
   lv_timer_handler();
@@ -287,31 +321,28 @@ uint16_t grayToRGB565(uint8_t gray) {
 }
 
 void draw8BitRGBBitmap(int16_t x, int16_t y, const uint8_t *bitmap, int16_t w, int16_t h) {
-    for (int16_t j = 0; j < h; j++) {
-        for (int16_t i = 0; i < w; i++) {
-            uint8_t rgb = bitmap[j * w + i];
-            uint16_t color = rgb332ToRGB565(rgb);
-            tft.drawPixel(x + i, y + j, color);
-        }
+  for (int16_t j = 0; j < h; j++) {
+    for (int16_t i = 0; i < w; i++) {
+      uint8_t rgb = bitmap[j * w + i];
+      uint16_t color = rgb332ToRGB565(rgb);
+      tft.drawPixel(x + i, y + j, color);
     }
+  }
 }
 
 uint16_t rgb332ToRGB565(uint8_t rgb332) {
-    // Extract the 3-3-2 bit components from the 8-bit RGB332 value
-    uint8_t r = (rgb332 >> 5) & 0x07;  // Red component (3 bits)
-    uint8_t g = (rgb332 >> 2) & 0x07;  // Green component (3 bits)
-    uint8_t b = rgb332 & 0x03;         // Blue component (2 bits)
+  // Extract the 3-3-2 bit components from the 8-bit RGB332 value
+  uint8_t r = (rgb332 >> 5) & 0x07;  // Red component (3 bits)
+  uint8_t g = (rgb332 >> 2) & 0x07;  // Green component (3 bits)
+  uint8_t b = rgb332 & 0x03;         // Blue component (2 bits)
 
-    // Convert 3-bit red to 5-bit red for RGB565
-    uint16_t r5 = (r * 255 / 7) >> 3;  // Scale 3-bit red to 5 bits
-    // Convert 3-bit green to 6-bit green for RGB565
-    uint16_t g6 = (g * 255 / 7) >> 2;  // Scale 3-bit green to 6 bits
-    // Convert 2-bit blue to 5-bit blue for RGB565
-    uint16_t b5 = (b * 255 / 3) >> 3;  // Scale 2-bit blue to 5 bits
+  // Convert 3-bit red to 5-bit red for RGB565
+  uint16_t r5 = (r * 255 / 7) >> 3;  // Scale 3-bit red to 5 bits
+  // Convert 3-bit green to 6-bit green for RGB565
+  uint16_t g6 = (g * 255 / 7) >> 2;  // Scale 3-bit green to 6 bits
+  // Convert 2-bit blue to 5-bit blue for RGB565
+  uint16_t b5 = (b * 255 / 3) >> 3;  // Scale 2-bit blue to 5 bits
 
-    // Combine the components into a 16-bit RGB565 value
-    return (r5 << 11) | (g6 << 5) | b5;
+  // Combine the components into a 16-bit RGB565 value
+  return (r5 << 11) | (g6 << 5) | b5;
 }
-
-
-
