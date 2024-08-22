@@ -1,3 +1,16 @@
+// gnd -> gnd
+// vcc -> 3v3
+// scl -> g18
+// sda -> g23
+// res -> g17
+// dc -> g16
+// cs -> g5
+// gnd -> knopf -> g32
+
+// Bild schloss offen Schloss zu für zentralverriegelung
+
+// Anzeige für Fenster offen oder zu
+
 #include <TFT_eSPI.h>
 #include <lvgl.h>
 #include <iostream>
@@ -21,7 +34,9 @@ int page = 0;
 //[4] = containerUnten
 //[5] = labelAvg
 //[6] = labelActions
-lv_obj_t *objectArray[7] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+//[7] = main_cont
+//[8] = labelFenster
+lv_obj_t *objectArray[9] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 
 
 TFT_eSPI tft = TFT_eSPI(); /* TFT entity */
@@ -42,22 +57,16 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
   lv_disp_flush_ready(disp);
 }
 
-//interrupt function von dem Button
-void IRAM_ATTR handleInterrupt() {
-  Serial.println("Interrupt occurred!");
-}
 
 void setup() {
   Serial.begin(9600); /*serial init */
 
   pinMode(buttonPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(buttonPin), handleInterrupt, RISING);
 
   //LCD init
   tft.begin();
   tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
-  delay(100);
 
   //lvgl init
   lv_init();
@@ -80,8 +89,6 @@ void setup() {
   indev_drv.type = LV_INDEV_TYPE_POINTER;
   lv_indev_drv_register(&indev_drv);
 
-  tft.fillScreen(TFT_BLACK);
-
   drawGrayscaleBitmap(0, 0, stern, 240, 280);
   stdOverlay(0);
 
@@ -89,8 +96,9 @@ void setup() {
   createPageName();
 
   pageHome();
+  set_dark_mode_theme();
 
-  lv_timer_handler(); 
+  lv_timer_handler();
   lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
 
   Serial.println("Setup done");
@@ -115,6 +123,33 @@ void loop() {
   delay(10);
 }
 
+void set_dark_mode_theme() {
+  // Create a dark mode theme
+  static lv_style_t dark_style;
+  lv_style_init(&dark_style);
+
+  // Background color for screens and containers
+  lv_style_set_bg_color(&dark_style, lv_color_black());
+  lv_style_set_text_color(&dark_style, lv_color_white());
+
+  // Apply the style to the default screen and any containers
+  lv_obj_add_style(lv_scr_act(), &dark_style, 0);
+}
+
+void setStyle1(lv_obj_t *container) {
+
+  static lv_style_t style_cont;
+  lv_style_init(&style_cont);
+  lv_style_set_border_color(&style_cont, lv_color_hex(0x000000));
+  lv_style_set_border_width(&style_cont, 0);
+  lv_style_set_bg_color(&style_cont, lv_color_black());
+
+  lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_set_style_text_color(container, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+
+  lv_obj_add_style(container, &style_cont, 0);
+}
 
 
 // was immer angezeigt wird
@@ -125,6 +160,7 @@ void stdOverlay(int page) {
   lv_obj_align(containerOben, LV_ALIGN_TOP_MID, 0, -5);
   lv_obj_set_style_bg_color(containerOben, lv_color_hex(0x0000ff), LV_PART_MAIN);  // Set background color to red
   lv_obj_set_style_bg_opa(containerOben, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
+  setStyle1(containerOben);
 
   objectArray[3] = containerOben;
   // Label Oben 1 in Container Oben
@@ -138,8 +174,9 @@ void stdOverlay(int page) {
   lv_obj_set_size(containerUnten, containerUntenBreite, 20);
   lv_obj_align(containerUnten, LV_ALIGN_BOTTOM_MID, 0, 0);
   lv_obj_set_style_radius(containerUnten, 10, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(containerUnten, lv_color_hex(0x909090), LV_PART_MAIN);  // Set background color to red
+  lv_obj_set_style_bg_color(containerUnten, lv_color_hex(0x000000), LV_PART_MAIN);  // Set background color to red
   lv_obj_set_style_bg_opa(containerUnten, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
+  setStyle1(containerUnten);
 
   objectArray[4] = containerUnten;
 
@@ -152,8 +189,9 @@ void stdOverlay(int page) {
     lv_obj_set_size(point, 10, 10);
     lv_obj_align(point, LV_ALIGN_LEFT_MID, 10 + i * 15, 0);
     lv_obj_set_style_radius(point, 10 / 2, LV_PART_MAIN);
+    setStyle1(point);
     if (i == page) {
-      lv_obj_set_style_bg_color(point, lv_color_hex(0x000000), LV_PART_MAIN);
+      lv_obj_set_style_bg_color(point, lv_color_hex(0x0000ff), LV_PART_MAIN);
     } else {
       lv_obj_set_style_bg_color(point, lv_color_white(), LV_PART_MAIN);
     }
@@ -167,6 +205,7 @@ void createPageName() {
   lv_obj_align(objectArray[0], LV_ALIGN_LEFT_MID, 20, 0);
   lv_obj_set_style_text_color(objectArray[0], lv_color_hex(0x0000ff), LV_PART_MAIN);
   lv_label_set_text(objectArray[0], "Seite 2");
+  setStyle1(objectArray[0]);
 }
 
 
@@ -186,7 +225,7 @@ lv_obj_t *barChart(int fuellstand) {
 void clearBitmap(int sizeX, int sizeY, int posX, int posY) {
   for (int i = 0; i < sizeY; i++) {
     for (int j = 0; j < sizeX; j++) {
-      tft.drawPixel(j + posX, i + posY, 0xFFFF);
+      tft.drawPixel(j + posX, i + posY, 0x0000);
     }
   }
 }
@@ -197,6 +236,10 @@ void tuerenAnpassen() {
 }
 void pageHome() {
   //  drawGrayscaleBitmap(30,100,home_car,180,90);
+  if (objectArray[7] != NULL) {
+    lv_obj_del(objectArray[7]);
+    objectArray[7] = NULL;
+  }
   pageName("Home");
 }
 
@@ -229,14 +272,14 @@ void pageTwo() {
   lv_obj_t *labelRange = lv_label_create(lv_scr_act());
   objectArray[2] = labelRange;
   lv_obj_align(labelRange, LV_ALIGN_TOP_LEFT, 110, 70);
-  lv_obj_set_style_text_color(labelRange, lv_color_hex(0x000000), LV_PART_MAIN);
   lv_label_set_text(labelRange, "hier Range");
+  setStyle1(labelRange);
 
   lv_obj_t *labelAvg = lv_label_create(lv_scr_act());
   objectArray[5] = labelAvg;
   lv_obj_align(labelAvg, LV_ALIGN_TOP_LEFT, 110, 170);
-  lv_obj_set_style_text_color(labelAvg, lv_color_hex(0x000000), LV_PART_MAIN);
   lv_label_set_text(labelAvg, "hier avg");
+  setStyle1(labelAvg);
 
   lv_obj_add_style(labelRange, &style, LV_PART_MAIN);
   lv_obj_add_style(labelAvg, &style, LV_PART_MAIN);
@@ -260,17 +303,26 @@ void pageThree() {
 void pageFour() {
   clearBitmap(124, 208, 60, 40);
   pageName("Meldungen");
+
+  lv_obj_t *labelFenster = lv_label_create(lv_scr_act());
+  objectArray[8] = labelFenster;
+  lv_obj_align(labelFenster, LV_ALIGN_TOP_LEFT, 50, 100);
+  lv_label_set_text(labelFenster, "alle Fenster geschlossen");
+  setStyle1(labelFenster);
+
 }
 
 
 
 void pageActions() {
+
+  lv_obj_del(objectArray[8]);
   pageName("Aktionen");
   lv_obj_t *labelActions = lv_label_create(lv_scr_act());
   objectArray[6] = labelActions;
   lv_obj_align(labelActions, LV_ALIGN_TOP_LEFT, 50, 100);
-  lv_obj_set_style_text_color(labelActions, lv_color_hex(0x000000), LV_PART_MAIN);
   lv_label_set_text(labelActions, "zeige hier Aktionen an");
+  setStyle1(labelActions);
 }
 
 void pageDriversLog() {
@@ -286,35 +338,41 @@ void pageDriversLog() {
   static lv_style_t style_mainCont;
   lv_style_init(&style_mainCont);
   lv_style_set_border_color(&style_mainCont, lv_color_hex(0xffffff));  // Setzt die Umrandungsfarbe auf Rot
-  lv_style_set_border_width(&style_mainCont, 0);                       // Setzt die Breite der Umrandung auf 3 Pixel
+  lv_style_set_border_width(&style_mainCont, 2);                       // Setzt die Breite der Umrandung auf 3 Pixel
 
   lv_obj_t *main_cont = lv_obj_create(lv_scr_act());
-  lv_obj_set_size(main_cont, 210, 240);                // Größe anpassen
-  lv_obj_add_style(main_cont, &style_mainCont, 0);     // Stil anwenden
+  objectArray[7] = main_cont;
+  lv_obj_set_size(main_cont, 210, 240);             // Größe anpassen
+  lv_obj_add_style(main_cont, &style_mainCont, 0);  // Stil anwenden
   lv_obj_align(main_cont, LV_ALIGN_TOP_LEFT, 25, 35);
-   lv_obj_clear_flag(main_cont, LV_OBJ_FLAG_SCROLLABLE);  // Positionierung innerhalb des nutzbaren Bereichs
+  setStyle1(main_cont);
 
   // Erster Container
   lv_obj_t *cont1 = lv_obj_create(main_cont);
   lv_obj_set_size(cont1, 200, 110);         // Breite und Höhe anpassen
   lv_obj_add_style(cont1, &style_cont, 0);  // Stil anwenden
   lv_obj_align(cont1, LV_ALIGN_TOP_MID, 0, -13);
+  setStyle1(cont1);
+  lv_obj_add_style(cont1, &style_mainCont, 0);
 
   // Labels für Container 1
   lv_obj_t *label1 = lv_label_create(cont1);
   lv_label_set_text(label1, "Fahrtnr: 1\nStartUhrzeit: 08:00\nEndUhrzeit: 10:00\nkm: 25\nTankfuellstand: 75%");
+  setStyle1(label1);
   lv_obj_align(label1, LV_ALIGN_CENTER, 0, 0);
 
   // Zweiter Container
   lv_obj_t *cont2 = lv_obj_create(main_cont);
-  lv_obj_set_size(cont2, 200, 110);         // Breite und Höhe anpassen
-  lv_obj_add_style(cont2, &style_cont, 0);  // Stil anwenden
+  lv_obj_set_size(cont2, 200, 110);  // Breite und Höhe anpassen
   lv_obj_align(cont2, LV_ALIGN_BOTTOM_MID, 0, -9);
+  setStyle1(cont2);
+  lv_obj_add_style(cont2, &style_mainCont, 0);
 
   // Labels für Container 2
   lv_obj_t *label2 = lv_label_create(cont2);
   lv_label_set_text(label2, "Fahrtnr: 2\nStartUhrzeit: 12:00\nEndUhrzeit: 14:00\nkm: 50\nTankfuellstand: 60%");
   lv_obj_align(label2, LV_ALIGN_CENTER, 0, 0);
+  setStyle1(label2);
 }
 
 void showPage(int page) {
