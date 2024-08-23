@@ -1,0 +1,158 @@
+#include "ESP32_NOW.h"
+#include "WiFi.h"
+
+#include <esp_mac.h>  // For the MAC2STR and MACSTR macros
+
+/* Definitions */
+
+#define ESPNOW_WIFI_CHANNEL 11
+#define oeffnen 33
+#define schliessen 26
+
+//Gloabe Variablen um gedrückthalten zu ermöglichen
+const unsigned long longPressTime = 1000; // Zeit in Millisekunden, die als "lange" definiert wird
+
+int buttonState = 0;             // Aktueller Zustand des Tasters
+int lastButtonState = HIGH;      // Letzter Zustand des Tasters (startet als HIGH, weil PULLUP)
+unsigned long buttonPressTime = 0;  // Zeitpunkt, an dem der Taster gedrückt wurde
+unsigned long buttonReleaseTime = 0; // Zeitpunkt, an dem der Taster losgelassen wurde
+
+
+/* Classes */
+typedef struct message {
+  char message[128];
+  char id[11];
+
+}message;
+
+message sended_message;
+// Creating a new class that inherits from the ESP_NOW_Peer class is required.
+
+class ESP_NOW_Broadcast_Peer : public ESP_NOW_Peer {
+public:
+  // Constructor of the class using the broadcast address
+  ESP_NOW_Broadcast_Peer(uint8_t channel, wifi_interface_t iface, const uint8_t *lmk) : ESP_NOW_Peer(ESP_NOW.BROADCAST_ADDR, channel, iface, lmk) {}
+
+  // Destructor of the class
+  ~ESP_NOW_Broadcast_Peer() {
+    remove();
+  }
+
+  // Function to properly initialize the ESP-NOW and register the broadcast peer
+  bool begin() {
+    if (!ESP_NOW.begin() || !add()) {
+      log_e("Failed to initialize ESP-NOW or register the broadcast peer");
+      return false;
+    }
+    return true;
+  }
+
+  // Function to send a message to all devices within the network
+  bool send_message(const uint8_t *data, size_t len) {
+    if (!send(data, len)) {
+      log_e("Failed to broadcast message");
+      return false;
+    }
+    return true;
+  }
+};
+
+/* Global Variables */
+
+uint32_t msg_count = 0;
+
+// Create a broadcast peer object
+ESP_NOW_Broadcast_Peer broadcast_peer(ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
+
+/* Main */
+
+void setup() {
+  pinMode(oeffnen, INPUT_PULLUP);
+  pinMode(schliessen, INPUT_PULLUP);
+  Serial.begin(115200);
+  while (!Serial) {
+    delay(10);
+  }
+ 
+  // Initialize the Wi-Fi module
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+  Serial.println("ESP-NOW Example - Broadcast Master");
+  Serial.println("Wi-Fi parameters:");
+  Serial.println("  Mode: STA");
+  Serial.println("  MAC Address: " + WiFi.macAddress());
+  Serial.printf("  Channel: %d\n", ESPNOW_WIFI_CHANNEL);
+
+  // Register the broadcast peer
+  if (!broadcast_peer.begin()) {
+    Serial.println("Failed to initialize broadcast peer");
+    Serial.println("Reebooting in 5 seconds...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  Serial.println("Setup complete. Broadcasting messages every 5 seconds.");
+}
+
+void loop() {
+
+  char data[32];
+  
+  if(digitalRead(oeffnen)==LOW){
+    strcpy(sended_message.id, "307");
+    strcpy(sended_message.message, "0001");
+    snprintf(data, sizeof(data), "%s", sended_message.message);
+
+    Serial.printf("Broadcasting message: %s\n", data);
+
+    if (!broadcast_peer.send_message((uint8_t *)&sended_message, sizeof(sended_message))) {
+      Serial.println("Failed to broadcast message");
+    }
+      Serial.printf("Nachricht wurde gesendet\n");
+    }
+
+  //Funktion gedrückthalten Funktion
+  buttonState = digitalRead(schliessen);  // Liest den aktuellen Zustand des Tasters ein
+
+  if (buttonState != lastButtonState) {  // Prüft, ob sich der Zustand des Tasters geändert hat
+    if (buttonState == LOW) {  // Wenn der Taster gerade gedrückt wurde (LOW)
+        buttonPressTime = millis();  // Speichert den Zeitpunkt des Tastendrucks
+    } 
+    else if (buttonState == HIGH) {  // Wenn der Taster gerade losgelassen wurde (HIGH)
+        buttonReleaseTime = millis();  // Speichert den Zeitpunkt des Loslassens
+        unsigned long pressDuration = buttonReleaseTime - buttonPressTime;  // Berechnet die Dauer des Tastendrucks
+
+      if (pressDuration < longPressTime) {// Kurzer Tastendruck (unterhalb der definierten "langen" Zeit)
+        strcpy(sended_message.id, "307");
+        strcpy(sended_message.message, "0002");
+        snprintf(data, sizeof(data), "%s", sended_message.message);
+
+        Serial.printf("Broadcasting message: %s\n", data);
+
+        if (!broadcast_peer.send_message((uint8_t *)&sended_message, sizeof(sended_message))) {
+          Serial.println("Failed to broadcast message");
+        }
+        Serial.printf("Nachricht wurde gesendet\n");
+      }
+      } 
+      else {// Langer Tastendruck (länger als die definierte Zeit)
+        strcpy(sended_message.id, "335");
+        strcpy(sended_message.message, "0000");
+        snprintf(data, sizeof(data), "%s", sended_message.message);
+
+        Serial.printf("Broadcasting message: %s\n", data);
+
+        if (!broadcast_peer.send_message((uint8_t *)&sended_message, sizeof(sended_message))) {
+          Serial.println("Failed to broadcast message");
+        }
+        Serial.printf("Nachricht wurde gesendet\n");
+      }
+      }
+    }
+    lastButtonState = buttonState;  // Aktualisiert den letzten Zustand des Tasters
+  }
+}
