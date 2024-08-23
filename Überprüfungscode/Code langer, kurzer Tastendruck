@@ -1,0 +1,36 @@
+const int buttonPin = 2;   // Pin, an dem der Taster angeschlossen ist
+const unsigned long longPressTime = 1000; // Zeit in Millisekunden, die als "lange" definiert wird
+
+int buttonState = 0;             // Aktueller Zustand des Tasters
+int lastButtonState = HIGH;      // Letzter Zustand des Tasters (startet als HIGH, weil PULLUP)
+unsigned long buttonPressTime = 0;  // Zeitpunkt, an dem der Taster gedrückt wurde
+unsigned long buttonReleaseTime = 0; // Zeitpunkt, an dem der Taster losgelassen wurde
+
+void setup() {
+  pinMode(buttonPin, INPUT_PULLUP);  // Setzt den Pin als Eingang mit aktiviertem Pullup-Widerstand
+  Serial.begin(9600);                // Startet die serielle Kommunikation
+}
+
+void loop() {
+  buttonState = digitalRead(buttonPin);  // Liest den aktuellen Zustand des Tasters ein
+
+  if (buttonState != lastButtonState) {  // Prüft, ob sich der Zustand des Tasters geändert hat
+    if (buttonState == LOW) {  // Wenn der Taster gerade gedrückt wurde (LOW)
+      buttonPressTime = millis();  // Speichert den Zeitpunkt des Tastendrucks
+    } else if (buttonState == HIGH) {  // Wenn der Taster gerade losgelassen wurde (HIGH)
+      buttonReleaseTime = millis();  // Speichert den Zeitpunkt des Loslassens
+      unsigned long pressDuration = buttonReleaseTime - buttonPressTime;  // Berechnet die Dauer des Tastendrucks
+
+      if (pressDuration < longPressTime) {
+        // Kurzer Tastendruck (unterhalb der definierten "langen" Zeit)
+        Serial.println("Kurzer Tastendruck erkannt");
+        
+      } else {
+        // Langer Tastendruck (länger als die definierte Zeit)
+        Serial.println("Langer Tastendruck erkannt");
+        
+      }
+    }
+    lastButtonState = buttonState;  // Aktualisiert den letzten Zustand des Tasters
+  }
+}
