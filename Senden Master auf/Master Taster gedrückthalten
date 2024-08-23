@@ -4,10 +4,9 @@
 #include <esp_mac.h>  // For the MAC2STR and MACSTR macros
 
 /* Definitions */
-
 #define ESPNOW_WIFI_CHANNEL 11
-#define oeffnen 33
-#define schliessen 26
+#define oeffnen 15
+#define schliessen 16
 
 //Gloabe Variablen um gedrückthalten zu ermöglichen
 const unsigned long longPressTime = 1000; // Zeit in Millisekunden, die als "lange" definiert wird
@@ -57,14 +56,10 @@ public:
   }
 };
 
-/* Global Variables */
-
 uint32_t msg_count = 0;
 
 // Create a broadcast peer object
 ESP_NOW_Broadcast_Peer broadcast_peer(ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
-
-/* Main */
 
 void setup() {
   pinMode(oeffnen, INPUT_PULLUP);
@@ -101,7 +96,8 @@ void setup() {
 void loop() {
 
   char data[32];
-  
+
+  //Nachricht öffnen des Autos
   if(digitalRead(oeffnen)==LOW){
     strcpy(sended_message.id, "307");
     strcpy(sended_message.message, "0001");
@@ -113,7 +109,7 @@ void loop() {
       Serial.println("Failed to broadcast message");
     }
       Serial.printf("Nachricht wurde gesendet\n");
-    }
+  }
 
   //Funktion gedrückthalten Funktion
   buttonState = digitalRead(schliessen);  // Liest den aktuellen Zustand des Tasters ein
@@ -125,7 +121,7 @@ void loop() {
     else if (buttonState == HIGH) {  // Wenn der Taster gerade losgelassen wurde (HIGH)
         buttonReleaseTime = millis();  // Speichert den Zeitpunkt des Loslassens
         unsigned long pressDuration = buttonReleaseTime - buttonPressTime;  // Berechnet die Dauer des Tastendrucks
-
+      //Auto wird abgeschlossen
       if (pressDuration < longPressTime) {// Kurzer Tastendruck (unterhalb der definierten "langen" Zeit)
         strcpy(sended_message.id, "307");
         strcpy(sended_message.message, "0002");
@@ -138,7 +134,8 @@ void loop() {
         }
         Serial.printf("Nachricht wurde gesendet\n");
       }
-      } 
+      
+      //Softclose wird durchgeführt
       else {// Langer Tastendruck (länger als die definierte Zeit)
         strcpy(sended_message.id, "335");
         strcpy(sended_message.message, "0000");
@@ -154,5 +151,5 @@ void loop() {
       }
     }
     lastButtonState = buttonState;  // Aktualisiert den letzten Zustand des Tasters
-  }
+  
 }
