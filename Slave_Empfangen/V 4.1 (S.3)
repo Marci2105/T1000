@@ -1,0 +1,442 @@
+//Inkludierte Bibliotheken
+#include "ESP32_NOW.h"
+#include "WiFi.h"
+#include <esp_mac.h>  // Für die MAC2STR und MACSTR Makros
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+#include <vector>
+#include <String>
+#include <math.h>
+
+
+#define CONFIG_SPIRAM_SUPPORT 0
+
+//Channel für Kommunikation zwischen den ESP32 wird festgelegt
+#define ESPNOW_WIFI_CHANNEL 6
+
+//TFT Display bekommt erste Befehle
+#define TFT_CS 5
+#define TFT_RST 9
+#define TFT_DC 8
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+
+//Struct zum Speichern der versendeten Nachricht
+typedef struct test_data{
+  char message[128];
+  char id[11];
+ 
+}test_data;
+
+//Struct zum Speichern der Dekodierten Daten
+typedef struct infos{
+  char data[128];
+  float tanklvl;
+  float longitude;
+  float latitude;
+  float kilometer;
+  int time;
+  short sunroof;
+  bool rear_right;
+  bool rear_left;
+  bool front_left;
+  bool front_right;
+  bool f_left_door;
+}infos;
+
+infos data_input;
+
+
+class ESP_NOW_Peer_Class : public ESP_NOW_Peer {
+public:
+  // Konstruktor der Klasse
+  ESP_NOW_Peer_Class(const uint8_t *mac_addr, uint8_t channel, wifi_interface_t iface, const uint8_t *lmk) 
+  : ESP_NOW_Peer(mac_addr, channel, iface, lmk) {}
+
+  // Destruktor der Klasse
+  ~ESP_NOW_Peer_Class() {}
+
+  // Funktion, um den Master-Peer zu registrieren
+  bool add_peer() {
+    if (!add()) {
+      log_e("Failed to register the broadcast peer");
+      return false;
+    }
+    return true;
+  }
+
+
+//Alle Dekodierfunktionen
+std::vector<int> rawHexToInt (String hex) {      //für Kilometer, Koordinaten und Date/Time, erstellt Vektor, der den Hex Zahlen Int Zahlen zuordnet und evtl. nicht genannte Hex Zahlen mit 0-Werten auffüllt
+    int charCounter = 0;  //zählt übergebenen String hoch
+    std::vector<int> Coefficients;
+    int keySpaceCounter = 0;
+    short counterPlaceValues = 0;
+    bool permitEnd = 0;
+    while (permitEnd == 0){       //HexStrings müssen mit \n beendet werden.
+        if (hex[charCounter] == ' '){
+            keySpaceCounter++;
+            charCounter++;
+        } else {
+            if (((hex[charCounter + 1] == ' ')||(hex[charCounter + 1] == '\0')) && ((hex[charCounter - 1] == ' ')||(Coefficients.empty() == 1))){
+                Coefficients.push_back(0);
+            } 
+            if (hex[charCounter] == '0') Coefficients.push_back(0);
+            if (hex[charCounter] == '1') Coefficients.push_back(1);
+            if (hex[charCounter] == '2') Coefficients.push_back(2);
+            if (hex[charCounter] == '3') Coefficients.push_back(3);
+            if (hex[charCounter] == '4') Coefficients.push_back(4);
+            if (hex[charCounter] == '5') Coefficients.push_back(5); 
+            if (hex[charCounter] == '6') Coefficients.push_back(6); 
+            if (hex[charCounter] == '7') Coefficients.push_back(7);
+            if (hex[charCounter] == '8') Coefficients.push_back(8);
+            if (hex[charCounter] == '9') Coefficients.push_back(9);
+            if (hex[charCounter] == 'A') Coefficients.push_back(10);
+            if (hex[charCounter] == 'B') Coefficients.push_back(11);
+            if (hex[charCounter] == 'C') Coefficients.push_back(12); 
+            if (hex[charCounter] == 'D') Coefficients.push_back(13); 
+            if (hex[charCounter] == 'E') Coefficients.push_back(14); 
+            if (hex[charCounter] == 'F') Coefficients.push_back(15);
+            charCounter++;
+        }
+        if (hex[charCounter] == '\0') {
+            
+            permitEnd = 1;
+        }
+    }
+    
+    return Coefficients;
+}
+
+
+int rawHexToBinaries(String hex, short firstBit, short lastBit) {       //benötigt math.h Library
+   String binaries = "";
+   int number = 0;
+    for (char c : hex) {
+        switch (c) {
+            case '0': binaries += "0000"; break;
+            case '1': binaries += "0001"; break;
+            case '2': binaries += "0010"; break;
+            case '3': binaries += "0011"; break;
+            case '4': binaries += "0100"; break;
+            case '5': binaries += "0101"; break;
+            case '6': binaries += "0110"; break;
+            case '7': binaries += "0111"; break;
+            case '8': binaries += "1000"; break;
+            case '9': binaries += "1001"; break;
+            case 'A': binaries += "1010"; break;
+            case 'B': binaries += "1011"; break;
+            case 'C': binaries += "1100"; break;
+            case 'D': binaries += "1101"; break;
+            case 'E': binaries += "1110"; break;
+            case 'F': binaries += "1111"; break;
+        }
+    }
+    int coefficientValue = 1 << (lastBit-firstBit);
+    
+    for (int i = firstBit; i <= lastBit; ++i) {
+        if (binaries[i] == '1') {
+            number += coefficientValue;
+        }
+        coefficientValue /= 2;
+    }
+    return number;
+}
+bool windowsState(String hex){    //(type für Fenster L, R, l, r (Klein = hinten, groß = vorne))
+    bool windowsState= true;          //Konvertieren von int in short     Fenster offen
+    short offset = 12;
+    int number = rawHexToBinaries(hex, offset, offset + 1);
+    if(number==2){
+      windowsState = 0; //wenn number 2 dann zu sonst immer offen
+    }
+    return windowsState;
+}
+short sunroofState(String hex){
+    short sunroofState= 1;         //Dach komplett offen 
+    int number = rawHexToBinaries(hex, 32, 39);   //Konvertieren von int in short
+    if(number < 100){
+      sunroofState = 2;           //Dach in lifting position
+    }else if(number == 100){
+      sunroofState = 0;           //Dach zu
+    }
+    return sunroofState;
+}
+
+bool doorState(String hex){      //a, b, c, d, e, f (vorne links beginnend im Uhrzeigersinn Türen, dann Kofferraum, dann Tankdeckel)
+    int number = (rawHexToBinaries(hex, 6, 7))-1;
+    bool doorState = number;
+    return doorState;
+}
+
+float tankLvl(const String& hex) {
+    float tankLvl = rawHexToBinaries(hex, 40, 50);
+    if(tankLvl >= 800){
+      tankLvl = (data_input.tanklvl*10);
+    }
+    return tankLvl / 10;
+
+}
+
+int coordinates(char type, bool isLongitude, String hex) {//wenn latitude == 1 --> Nach Breitengrad wird gesucht, sonst nach geograph. Länge //type: 'd' -> Degrees, 'm' -> Minutes, 's' -> Seconds, 'a' -> mas, 'b' -> all (nur Latitude oder nur Longitude)
+    std::vector<int> rawCoefficients = rawHexToInt(hex);
+    float result = 0;
+    bool isNegative = 0;
+    int coefficientValue = 1;
+    const int offset = 8;
+    for (int hexCounter = (0 + isLongitude*offset); hexCounter < (8 + offset); hexCounter++){
+        result += rawCoefficients[hexCounter + 1]*coefficientValue; 
+        coefficientValue *= 16;
+        result += rawCoefficients[hexCounter]*coefficientValue; 
+        coefficientValue *= 16;
+        hexCounter++;
+    }
+    //Nun ist das Ergebnis bereit.
+    result-=(1073741824*(1+isLongitude));
+    if (result < 0){
+        isNegative = 1;
+        result *= (-1);
+    }
+    result*=(90/1073741823.5);
+    int degrees = floor(result);
+    if(type == 'd'){
+        return degrees;
+    } else {
+        result -= degrees;
+        result *=60;
+        int minutes = floor(result);
+        if(type == 'm'){
+            return minutes;
+        } else {
+            result -= minutes;
+            result *=60;
+            int seconds = floor(result);
+            if(type == 's'){
+                return seconds;
+            } else {
+                result -= seconds;
+                result *=1000;
+                int mas = floor(result);
+                if(type == 'a'){
+                    return mas;
+                } else {/*          //Man bekommt keinen String, sondern nur einzeln Int-Werte von Grad, Minuten, Sekunden und Mas
+                   String resul String = "";
+                    resul String += to String(degrees);
+                    resul String += "° ";
+                    resul String += to String(minutes);
+                    resul String += "' ";
+                    resul String += to String(degrees);
+                    resul String += ".";
+                    resul String += to String(degrees);
+                    resul String += "'' ";
+                    if(isNegative == 1){
+                        if(offset == 0){
+                            resul String += "S";
+                        } else {
+                            resul String += "W";
+                        }
+                    }else{
+                        if(offset == 0){
+                            resul String += "N";
+                        } else {
+                            resul String += "E";
+                        }
+                    }*/
+                }
+            }
+        }
+    }
+}
+float kilometers (String hex){
+    std::vector<int> kilometers = rawHexToInt(hex);
+    int coefficientValue = 1;
+    float result = 0;
+    for (int hexCounter = 0; hexCounter < 6; hexCounter++){
+        result += kilometers[hexCounter + 1]*coefficientValue; 
+        coefficientValue *= 16;
+        result += kilometers[hexCounter]*coefficientValue; 
+        coefficientValue *= 16;
+        hexCounter++;
+    }
+    result /= 10;
+    return result;
+}
+
+int uhr(char type, String hexString){                      //für Stunden , Minuten, Sekunden, Tag, Monat, Jahr müssen die chars 'h', 'm', 's', 'D', 'M' und 'Y' angegeben werden
+    std::vector<int> rawCoefficients = rawHexToInt(hexString);
+    
+    float result = 0;
+    if (type == 'h') {
+        result += rawCoefficients[1]; 
+        result += rawCoefficients[0]*16; 
+    }
+    if (type == 'm') {
+        result += rawCoefficients[3]; 
+        result += rawCoefficients[2]*16; 
+    }
+    if (type == 's') {
+        result += rawCoefficients[5]; 
+        result += rawCoefficients[4]*16; 
+    }
+    if (type == 'D') {
+        result += rawCoefficients[7]; 
+        result += rawCoefficients[6]*16;
+
+    }
+    if (type == 'M') {
+        result += rawCoefficients[9]; 
+        result += rawCoefficients[8]*16; 
+    }
+    if (type == 'Y') {
+        result += rawCoefficients[11]; 
+        result += rawCoefficients[10]*16; 
+        result += rawCoefficients[12]*100;
+        result += rawCoefficients[13]*1000;
+    }
+    return result;
+}
+
+
+
+//Funktion um zu Entscheiden wie Dekodiert wird
+void decode(const char array[11], const char array2[128]) {
+    char code[4];
+    strncpy(code, array, 3);
+    code[3] = '\0';
+    if (strcmp(code, "42E") == 0) {
+        data_input.tanklvl = tankLvl(array2);
+    }
+    else if(strcmp(code, "3EB")==0){
+        data_input.longitude= coordinates('d', 1 , array2 );
+        data_input.latitude= coordinates('d', 0 , array2 );
+    }
+    else if(strcmp(code,"309")==0){
+      data_input.kilometer = kilometers(array2);
+    }
+    else if(strcmp(code,"30B")==0){
+      data_input.time = uhr('m',array2);
+    }
+    else if(strcmp(code, "35D")==0){
+      data_input.sunroof = sunroofState(array2);
+    }
+    else if(strcmp(code, "32E")==0){
+      data_input.rear_right = windowsState(array2);
+    }
+    else if(strcmp(code, "31A")==0){
+      data_input.front_left = windowsState(array2);
+    }
+    else if(strcmp(code, "320")==0){
+      data_input.front_right = windowsState(array2);
+    }
+    else if(strcmp(code, "328")==0){
+      data_input.rear_left = windowsState(array2);
+    }
+    else if(strcmp(code, "2FB")==0){
+      data_input.f_left_door = doorState(array2);
+    }
+    else {Serial.println("No match found");
+    }
+}
+
+
+
+  // Funktion, um die empfangenen Nachrichten vom Master zu drucken
+  void onReceive(const uint8_t *data, size_t len, bool broadcast) {
+    if (len == sizeof(test_data)) {   //Überprüfen ob Daten der größe des Structs test_data entsprechen
+      test_data received_data;
+      infos data_input;
+      memcpy(&received_data, data, sizeof(test_data));
+      decode(received_data.id, received_data.message);                                  //Dekodierung wird durchgeführt
+    } 
+    else {
+      // Bildschirm löschen
+      tft.fillScreen(ST77XX_BLACK); 
+      tft.setCursor(10, 10);
+      //Fehlernachricht wird ausgegeben
+      tft.printf("Unexpected data length received\n");
+    }
+  }};
+
+
+// Liste aller Master. Diese wird beim Registrieren eines neuen Masters gefüllt.
+std::vector<ESP_NOW_Peer_Class> masters;
+
+// Callback, das aufgerufen wird, wenn ein unbekannter Peer eine Nachricht sendet
+void register_new_master(const esp_now_recv_info_t *info, const uint8_t *data, int len, void *arg) {
+  if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {
+
+    ESP_NOW_Peer_Class new_master(info->src_addr, ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
+
+    masters.push_back(new_master);
+    if (!masters.back().add_peer()) {
+      Serial.println("Failed to register the new master");
+      return;
+    }
+  } else {
+    // Der Slave empfängt nur Broadcast-Nachrichten
+    log_v("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
+    log_v("Ignoriere die Nachricht");
+  }
+}
+
+//Setup wird definiert
+void setup() {
+  Serial.begin(115200);
+
+  tft.init(240, 280);
+  tft.setRotation(1);
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 10);
+  tft.print("ESP ready\n");
+  while (!Serial) {
+    delay(10);
+  }
+
+  // Initialisiere das Wi-Fi-Modul
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+ 
+
+  // Initialisiere das ESP-NOW-Protokoll
+  if (!ESP_NOW.begin()) {
+    Serial.println("Failed to initialize ESP-NOW");
+    Serial.println("Rebooting in 5 seconds...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  // Registriere das neue Peer-Callback
+  ESP_NOW.onNewPeer(register_new_master, NULL);
+
+  Serial.println("Setup complete. Waiting for a master to broadcast a message...");
+  data_input.tanklvl=0;
+  
+}
+
+
+
+//Loop wird gestartet
+void loop() {
+  Serial.printf("Loop startet\n");
+  tft.fillScreen(ST77XX_BLACK); 
+  tft.setCursor(10, 10);
+  tft.printf("Tanklevel=  %.1f\n", data_input.tanklvl);
+  tft.printf("Longitude: %.1f\t Latitude: %.1f\n", data_input.longitude, data_input.latitude);
+  tft.printf("Gefahrene Kilometer: %.1f\n", data_input.kilometer);
+  tft.printf("Uhrzeit: %d", data_input.time);
+  tft.printf("Sunroof: %d\n", data_input.sunroof);
+  tft.printf("Window rear right: %d\n", data_input.rear_right);
+  tft.printf("Window rear left: %d\n", data_input.rear_left);
+  tft.printf("Window front right: %d\n", data_input.front_right);
+  tft.printf("Window front left: %d \n", data_input.front_left);
+  tft.printf("%d; \n", data_input.f_left_door);
+  Serial.printf("Message received: %f\n", data_input.tanklvl);
+  Serial.printf("Message received: %d\n", data_input.sunroof);
+  Serial.printf("Message received: %f\n", data_input.kilometer);
+  delay(5000);
+}
