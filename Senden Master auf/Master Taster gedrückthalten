@@ -5,8 +5,8 @@
 
 /* Definitions */
 #define ESPNOW_WIFI_CHANNEL 11
-#define oeffnen 15
-#define schliessen 16
+#define oeffnen 4
+#define schliessen 26
 
 //Gloabe Variablen um gedrückthalten zu ermöglichen
 const unsigned long longPressTime = 1000; // Zeit in Millisekunden, die als "lange" definiert wird
