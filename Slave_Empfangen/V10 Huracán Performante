@@ -1,0 +1,971 @@
+//TODOS:
+//SCHWARZE ANZEIGE UND SCHÖNE FORMATIERUNG FÜR DISPLAY
+  //-->Bilder in Weiß mit schwarzem Hintergrund
+  //
+//GENAUE KLARHEIT ÜBER PAGES
+
+
+//Inkludierte Bibliotheken
+#include "ESP32_NOW.h"
+#include "WiFi.h"
+#include <esp_mac.h>  // Für die MAC2STR und MACSTR Makros
+//#include <Adafruit_GFX.h>
+//#include <Adafruit_ST7789.h>
+#include <SPI.h>
+#include <vector>
+#include <String>
+#include <math.h>
+#include <TFT_eSPI.h>
+#include <lvgl.h>
+//#include <iostream>
+
+#include "frames.h"
+
+#define CrowPanel_24
+
+
+//Channel für Kommunikation zwischen den ESP32 wird festgelegt
+#define ESPNOW_WIFI_CHANNEL 6
+
+//TFT Display bekommt erste Befehle
+//#define TFT_CS 5
+//#define TFT_RST 17
+//#define TFT_DC 16
+//Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+
+//Taster öfffen, schließen und Softclose
+#define oeffnen 33
+#define schliessen 4 //Softclose ist längeres drücken des Schließtasters
+const unsigned long longPressTime = 1000; // Zeit in Millisekunden, die als "lange" definiert wird
+
+//GLobale Zustände für Taster schließen um gedrückt halten zu ermöglichen 
+int buttonState = 0;             // Aktueller Zustand des Tasters
+int lastButtonState = 0;         // Letzter Zustand des Tasters
+unsigned long buttonPressTime = 0;  // Zeitpunkt, an dem der Taster gedrückt wurde
+unsigned long buttonReleaseTime = 0; // Zeitpunkt, an dem der Taster losgelassen wurde
+
+
+//Struct zum Speichern der versendeten Nachricht
+typedef struct test_data{
+  char message[128];
+  char id[11];
+ 
+}test_data;
+
+//Struct zum Speichern der Dekodierten Daten
+typedef struct infos{
+  char data[128];
+  float tanklvl;
+  int longitude[4];
+  int latitude[4];
+  float kilometer;
+  int time;
+  short sunroof;
+  bool rear_right;
+  bool rear_left;
+  bool front_left;
+  bool front_right;
+  bool f_left_door;
+}infos;
+
+infos data_input;
+//
+
+
+static const uint16_t screenWidth = 240;
+static const uint16_t screenHeight = 280;
+
+const int buttonPin = 32;
+int page = 0;
+float tanklevprev;
+bool window_rear_right_prev;
+bool window_rear_left_prev;
+bool window_front_right_prev;
+bool window_front_left_prev;
+int sunroof_prev;
+bool f_left_prev;
+
+//[0] = labelPageName
+//[1] = barChart
+//[2] = labelRange
+//[3] = containerOben
+//[4] = containerUnten
+//[5] = labelAvg
+//[6] = labelActions
+//[7] = main_cont
+//[8] = labelFenster
+lv_obj_t *objectArray[9] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+
+
+TFT_eSPI tft = TFT_eSPI(); /* TFT entity */
+
+static lv_disp_draw_buf_t draw_buf;
+static lv_color_t buf1[screenWidth * screenHeight / 13];
+
+/* display flash */
+void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
+  uint32_t w = (area->x2 - area->x1 + 1);
+  uint32_t h = (area->y2 - area->y1 + 1);
+
+  tft.startWrite();
+  tft.setAddrWindow(area->x1, area->y1, w, h);
+  tft.pushColors((uint16_t *)&color_p->full, w * h, true);
+  tft.endWrite();
+
+  lv_disp_flush_ready(disp);
+}
+
+//interrupt function von dem Button
+void IRAM_ATTR handleInterrupt() {
+  Serial.println("Interrupt occurred!");
+}
+
+
+class ESP_NOW_Peer_Class : public ESP_NOW_Peer {
+public:
+  // Konstruktor der Klasse
+  ESP_NOW_Peer_Class(const uint8_t *mac_addr, uint8_t channel, wifi_interface_t iface, const uint8_t *lmk) 
+  : ESP_NOW_Peer(mac_addr, channel, iface, lmk) {}
+
+  // Destruktor der Klasse
+  ~ESP_NOW_Peer_Class() {}
+
+  // Funktion, um den Master-Peer zu registrieren
+  bool add_peer() {
+    if (!add()) {
+      log_e("Failed to register the broadcast peer");
+      return false;
+    }
+    return true;
+  }
+
+
+
+
+
+//Alle Dekodierfunktionen
+std::vector<int> rawHexToInt (String hex /*, int bitLength, int firstByte, int firstBit*/) {      //für Kilometer, Koordinaten und Date/Time, erstellt Vektor, der den Hex Zahlen Int Zahlen zuordnet und evtl. nicht genannte Hex Zahlen mit 0-Werten auffüllt
+    int charCounter = 0;  //zählt übergebenen String hoch
+    std::vector<int> Coefficients;
+    int keySpaceCounter = 0;
+    short counterPlaceValues = 0;
+    bool permitEnd = 0;
+    while (permitEnd == 0){       //HexStrings müssen mit \n beendet werden.
+        if (hex[charCounter] == ' '){
+            keySpaceCounter++;
+            charCounter++;
+        } else {
+            if (((hex[charCounter + 1] == ' ')||(hex[charCounter + 1] == '\0')) && ((hex[charCounter - 1] == ' ')||(Coefficients.empty() == 1))){
+                Coefficients.push_back(0);
+            } 
+            if (hex[charCounter] == '0') Coefficients.push_back(0);
+            if (hex[charCounter] == '1') Coefficients.push_back(1);
+            if (hex[charCounter] == '2') Coefficients.push_back(2);
+            if (hex[charCounter] == '3') Coefficients.push_back(3);
+            if (hex[charCounter] == '4') Coefficients.push_back(4);
+            if (hex[charCounter] == '5') Coefficients.push_back(5); 
+            if (hex[charCounter] == '6') Coefficients.push_back(6); 
+            if (hex[charCounter] == '7') Coefficients.push_back(7);
+            if (hex[charCounter] == '8') Coefficients.push_back(8);
+            if (hex[charCounter] == '9') Coefficients.push_back(9);
+            if (hex[charCounter] == 'A') Coefficients.push_back(10);
+            if (hex[charCounter] == 'B') Coefficients.push_back(11);
+            if (hex[charCounter] == 'C') Coefficients.push_back(12); 
+            if (hex[charCounter] == 'D') Coefficients.push_back(13); 
+            if (hex[charCounter] == 'E') Coefficients.push_back(14); 
+            if (hex[charCounter] == 'F') Coefficients.push_back(15);
+            charCounter++;
+        }
+        if (hex[charCounter] == '\0') {
+            
+            permitEnd = 1;
+        }
+    }
+    return Coefficients;
+}
+
+
+int rawHexToBinaries(String hex, short firstBit, short lastBit) {       //benötigt math.h Library
+   String binaries = "";
+   int number = 0;
+    for (char c : hex) {
+        switch (c) {
+            case '0': binaries += "0000"; break;
+            case '1': binaries += "0001"; break;
+            case '2': binaries += "0010"; break;
+            case '3': binaries += "0011"; break;
+            case '4': binaries += "0100"; break;
+            case '5': binaries += "0101"; break;
+            case '6': binaries += "0110"; break;
+            case '7': binaries += "0111"; break;
+            case '8': binaries += "1000"; break;
+            case '9': binaries += "1001"; break;
+            case 'A': binaries += "1010"; break;
+            case 'B': binaries += "1011"; break;
+            case 'C': binaries += "1100"; break;
+            case 'D': binaries += "1101"; break;
+            case 'E': binaries += "1110"; break;
+            case 'F': binaries += "1111"; break;
+        }
+    }
+    int coefficientValue = 1 << (lastBit-firstBit);
+    
+    for (int i = firstBit; i <= lastBit; ++i) {
+        if (binaries[i] == '1') {
+            number += coefficientValue;
+        
+        }
+        coefficientValue /= 2;
+    }
+    return number;
+}
+bool windowsState(String hex){    //(type für Fenster L, R, l, r (Klein = hinten, groß = vorne))
+    bool windowsState= true;          //Konvertieren von int in short
+    int number = rawHexToBinaries(hex, 12, 13);
+    if(number==2){
+      windowsState = 0; //wenn number 2 dann zu sonst immer offen
+    }
+    return windowsState;
+}
+short sunroofState(String hex){
+    short sunroofState= 1;         //Dach komplett offen 
+    int number = rawHexToBinaries(hex, 32, 39);   //Konvertieren von int in short
+    if(number < 100){
+      sunroofState = 2;           //Dach in lifting position
+    }else if(number == 100){
+      sunroofState = 0;           //Dach zu
+    }
+    return sunroofState;
+}
+bool doorState(String hex){
+    int number = (rawHexToBinaries(hex, 6, 7))-1;
+    bool doorState = number;
+    return doorState;
+}
+
+float tankLvl(const String& hex) {
+    float tankLvl = rawHexToBinaries(hex, 40, 50);
+    if(tankLvl >= 800){
+      tankLvl = (data_input.tanklvl*10);
+    }
+    return tankLvl / 10;
+}
+int coordinates(char type, bool isLongitude, String hex) {//wenn latitude == 1 --> Nach Breitengrad wird gesucht, sonst nach geograph. Länge //type: 'd' -> Degrees, 'm' -> Minutes, 's' -> Seconds, 'a' -> mas, 'b' -> all (nur Latitude oder nur Longitude)
+    std::vector<int> rawCoefficients = rawHexToInt(hex);
+    float result = 0;
+    bool isNegative = 0;
+    int coefficientValue = 1;
+    const int offset = 8;
+    for (int hexCounter = (0 + isLongitude*offset); hexCounter < (8 + offset); hexCounter++){
+        result += rawCoefficients[hexCounter + 1]*coefficientValue; 
+        coefficientValue *= 16;
+        result += rawCoefficients[hexCounter]*coefficientValue; 
+        coefficientValue *= 16;
+        hexCounter++;
+    }
+    //Nun ist das Ergebnis bereit.
+    result-=(1073741824*(1+isLongitude));
+    /*if (type = 'b'){
+      int raw = result;
+      return raw;
+    }*/
+    result*=(90/1073741823.5);
+    
+    if (result < 0){
+        isNegative = 1;
+        result *= (-1);
+    }
+    int degrees = floor(result);
+    if(type == 'd'){
+        return degrees;
+    } else {
+        result -= degrees;
+        result *=60;
+        int minutes = floor(result);
+        if(type == 'm'){
+            return minutes;
+        } else {
+            result -= minutes;
+            result *=60;
+            int seconds = floor(result);
+            if(type == 's'){
+                return seconds;
+            } else {
+                result -= seconds;
+                result *=1000;
+                int mas = floor(result);
+                if(type == 'a'){
+                    return mas;
+                } else {/*          //Man bekommt keinen String, sondern nur einzeln Int-Werte von Grad, Minuten, Sekunden und Mas
+                   String resul String = "";
+                    resul String += to String(degrees);
+                    resul String += "° ";
+                    resul String += to String(minutes);
+                    resul String += "' ";
+                    resul String += to String(degrees);
+                    resul String += ".";
+                    resul String += to String(degrees);
+                    resul String += "'' ";
+                    if(isNegative == 1){
+                        if(offset == 0){
+                            resul String += "S";
+                        } else {
+                            resul String += "W";
+                        }
+                    }else{
+                        if(offset == 0){
+                            resul String += "N";
+                        } else {
+                            resul String += "E";
+                        }
+                    }*/
+                }
+            }
+        }
+    }
+}
+float kilometers (String hex){
+    std::vector<int> kilometers = rawHexToInt(hex);
+    int coefficientValue = 1;
+    float result = 0;
+    for (int hexCounter = 0; hexCounter < 6; hexCounter++){
+        result += kilometers[hexCounter + 1]*coefficientValue; 
+        coefficientValue *= 16;
+        result += kilometers[hexCounter]*coefficientValue; 
+        coefficientValue *= 16;
+        hexCounter++;
+    }
+    result /= 10;
+    return result;
+}
+
+int uhr(char type, String hexString){                      //für Stunden , Minuten, Sekunden, Tag, Monat, Jahr müssen die chars 'h', 'm', 's', 'D', 'M' und 'Y' angegeben werden
+    std::vector<int> rawCoefficients = rawHexToInt(hexString);
+    
+    float result = 0;
+    if (type == 'h') {
+        result += rawCoefficients[1]; 
+        result += rawCoefficients[0]*16; 
+    }
+    if (type == 'm') {
+        result += rawCoefficients[3]; 
+        result += rawCoefficients[2]*16; 
+    }
+    if (type == 's') {
+        result += rawCoefficients[5]; 
+        result += rawCoefficients[4]*16; 
+    }
+    if (type == 'D') {
+        result += rawCoefficients[7]; 
+        result += rawCoefficients[6]*16;
+
+    }
+    if (type == 'M') {
+        result += rawCoefficients[9]; 
+        result += rawCoefficients[8]*16; 
+    }
+    if (type == 'Y') {
+        result += rawCoefficients[11]; 
+        result += rawCoefficients[10]*16; 
+        result += rawCoefficients[12]*100;
+        result += rawCoefficients[13]*1000;
+    }
+    return result;
+}
+bool window_rear_right_prev;
+bool window_rear_left_prev;
+bool window_front_right_prev;
+bool window_front_left_prev;
+int sunroof_prev;
+bool f_left_prev;
+void decode(const char array[11], const char array2[128]) {
+    char code[4];
+    strncpy(code, array, 3);
+    code[3] = '\0';
+    if (strcmp(code, "42E") == 0) {
+      data_input.tanklvl = tankLvl(array2);
+        if((tanklevprev != (data_input.tanklvl))&&(page==1)){
+          pageOne();
+          stdOverlay(page);
+          lv_timer_handler();
+        }
+      tanklevprev= data_input.tanklvl;
+    }
+    else if(strcmp(code, "3EB")==0){
+        data_input.longitude[0]= coordinates('d', 1 , array2 );
+        data_input.longitude[1]= coordinates('m', 1 , array2 );
+        data_input.longitude[2]= coordinates('s', 1 , array2 );
+        data_input.latitude[0]= coordinates('d', 0 , array2 );
+        data_input.latitude[1]= coordinates('m', 0 , array2 );
+        data_input.latitude[2]= coordinates('s', 0 , array2 );
+    }
+    else if(strcmp(code,"309")==0){
+      data_input.kilometer = kilometers(array2);
+    }
+    else if(strcmp(code,"30B")==0){
+      data_input.time = uhr('m',array2);
+    }
+    else if(strcmp(code, "35D")==0){
+      data_input.sunroof = sunroofState(array2);
+       if((sunroof_prev != (data_input.sunroof))&&(page==2)){
+          pageTwo();
+          stdOverlay(page);
+          lv_timer_handler();
+        }
+      sunroof_prev= data_input.sunroof;
+    }
+    else if(strcmp(code, "32E")==0){
+      data_input.rear_right = windowsState(array2);
+       if((window_rear_right_prev != (data_input.rear_right))&&(page==2)){
+          pageTwo();
+          stdOverlay(page);
+          lv_timer_handler();
+        }
+      window_rear_right_prev= data_input.rear_right;
+    }
+    else if(strcmp(code, "31A")==0){
+      data_input.front_left = windowsState(array2);
+      if((window_front_left_prev != (data_input.front_left))&&(page==2)){
+          pageTwo();
+          stdOverlay(page);
+          lv_timer_handler();
+        }
+      window_front_left_prev= data_input.front_left;
+    
+    }
+    else if(strcmp(code, "320")==0){
+      data_input.front_right = windowsState(array2);
+      if((window_front_right_prev != (data_input.front_right))&&(page==2)){
+          pageTwo();
+          stdOverlay(page);
+          lv_timer_handler();
+        }
+      window_front_right_prev= data_input.front_right;
+    }
+    else if(strcmp(code, "328")==0){
+      data_input.rear_left = windowsState(array2);
+      if((window_rear_left_prev != (data_input.rear_left))&&(page==2)){
+          pageTwo();
+          stdOverlay(page);
+          lv_timer_handler();
+        }
+      window_rear_left_prev= data_input.rear_left;
+    }
+    else if(strcmp(code, "2FB")==0){
+      data_input.f_left_door = doorState(array2);
+    }
+    //Kein DEBUGGING für No Match Found
+}
+
+  // Funktion, um die empfangenen Nachrichten vom Master zu drucken
+  void onReceive(const uint8_t *data, size_t len, bool broadcast) {
+    if (len == sizeof(test_data)) {   //Überprüfen ob Daten der größe des Structs test_data entsprechen
+      test_data received_data;
+      infos data_input;
+      //Daten werden in test_data Struct einsortiert
+      memcpy(&received_data, data, sizeof(test_data));
+      decode(received_data.id, received_data.message);                                  //Dekodierung wird durchgeführt
+ } 
+    else {
+      // Bildschirm löschen
+      //tft.fillScreen(ST77XX_BLACK); 
+      //tft.setCursor(10, 10);
+      //Fehlernachricht wird ausgegeben
+      //tft.printf("Unexpected data length received\n");
+     // Serial.println("Unexpected data length received");
+    }
+  }};
+
+
+// Liste aller Master. Diese wird beim Registrieren eines neuen Masters gefüllt.
+std::vector<ESP_NOW_Peer_Class> masters;
+
+// Callback, das aufgerufen wird, wenn ein unbekannter Peer eine Nachricht sendet
+void register_new_master(const esp_now_recv_info_t *info, const uint8_t *data, int len, void *arg) {
+  if (memcmp(info->des_addr, ESP_NOW.BROADCAST_ADDR, 6) == 0) {
+    //Serial.printf("Unknown peer " MACSTR " sent a broadcast message\n", MAC2STR(info->src_addr));
+    //Serial.println("Registering the peer as a master");
+
+    ESP_NOW_Peer_Class new_master(info->src_addr, ESPNOW_WIFI_CHANNEL, WIFI_IF_STA, NULL);
+
+    masters.push_back(new_master);
+    if (!masters.back().add_peer()) {
+      Serial.println("Failed to register the new master");
+      return;
+    }
+  } else {
+    // Der Slave empfängt nur Broadcast-Nachrichten
+    log_v("Received a unicast message from " MACSTR, MAC2STR(info->src_addr));
+    log_v("Ignoriere die Nachricht");
+  }
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////Display/////////////////////////////////////////////////////////////////
+void set_dark_mode_theme() {
+  // Create a dark mode theme
+  static lv_style_t dark_style;
+  lv_style_init(&dark_style);
+
+  // Background color for screens and containers
+  lv_style_set_bg_color(&dark_style, lv_color_black());
+  lv_style_set_text_color(&dark_style, lv_color_white());
+
+  // Apply the style to the default screen and any containers
+  lv_obj_add_style(lv_scr_act(), &dark_style, 0);
+}
+
+void setStyle1(lv_obj_t *container) {
+
+  static lv_style_t style_cont;
+  lv_style_init(&style_cont);
+  lv_style_set_border_color(&style_cont, lv_color_hex(0x000000));
+  lv_style_set_border_width(&style_cont, 0);
+  lv_style_set_bg_color(&style_cont, lv_color_black());
+
+  lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_set_style_text_color(container, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+
+  lv_obj_add_style(container, &style_cont, 0);
+}
+
+// was immer angezeigt wird
+void stdOverlay(int page) {
+
+  lv_obj_t *containerOben = lv_obj_create(lv_scr_act());
+  lv_obj_set_size(containerOben, 250, 30);
+  lv_obj_align(containerOben, LV_ALIGN_TOP_MID, 0, -5);
+  lv_obj_set_style_bg_color(containerOben, lv_color_hex(0x0000ff), LV_PART_MAIN);  // Set background color to red
+  lv_obj_set_style_bg_opa(containerOben, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
+  setStyle1(containerOben);
+
+  objectArray[3] = containerOben;
+  // Label Oben 1 in Container Oben
+  lv_obj_t *labelO1 = lv_label_create(containerOben);
+  lv_label_set_text(labelO1, "CLS 450 4 Matic");
+  lv_obj_center(labelO1);
+
+  const int containerUntenBreite = 150;
+  // container mit Punkten unten
+  lv_obj_t *containerUnten = lv_obj_create(lv_scr_act());
+  lv_obj_set_size(containerUnten, containerUntenBreite, 20);
+  lv_obj_align(containerUnten, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_radius(containerUnten, 10, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(containerUnten, lv_color_hex(0x000000), LV_PART_MAIN);  // Set background color to red
+  lv_obj_set_style_bg_opa(containerUnten, LV_OPA_COVER, LV_PART_MAIN);              // Make sure the background is fully opaque
+  setStyle1(containerUnten);
+
+  objectArray[4] = containerUnten;
+
+  const int numPoint = 4;
+  const int sizePoint = 10;
+  const int sizeSpace = (containerUntenBreite - 25 * (numPoint - 1) - 10) / 2;
+  // Label in container unten
+  for (int i = 0; i < numPoint; i++) {
+    lv_obj_t *point = lv_btn_create(containerUnten);  // Punkt als Button erstellen
+    lv_obj_set_size(point, 10, 10);
+    lv_obj_align(point, LV_ALIGN_LEFT_MID, 37 + i * 15, 0);
+    lv_obj_set_style_radius(point, 10 / 2, LV_PART_MAIN);
+    setStyle1(point);
+    if (i == page) {
+      lv_obj_set_style_bg_color(point, lv_color_hex(0x0000ff), LV_PART_MAIN);
+    } else {
+      lv_obj_set_style_bg_color(point, lv_color_white(), LV_PART_MAIN);
+    }
+    lv_obj_set_style_bg_opa(point, LV_OPA_COVER, LV_PART_MAIN);
+  }
+}
+
+void createPageName() {
+  objectArray[0] = lv_label_create(lv_scr_act());
+  lv_obj_set_style_transform_angle(objectArray[0], 900, LV_PART_MAIN);
+  lv_obj_align(objectArray[0], LV_ALIGN_LEFT_MID, 20, 0);
+  lv_obj_set_style_text_color(objectArray[0], lv_color_hex(0x0000ff), LV_PART_MAIN);
+  lv_label_set_text(objectArray[0], "Seite 2");
+}
+
+
+void pageName(const char *seitenName) {
+  lv_label_set_text(objectArray[0], seitenName);
+  lv_obj_align(objectArray[0], LV_ALIGN_LEFT_MID, 20, 0);
+}
+
+lv_obj_t *barChart(int fuellstand) {
+  lv_obj_t *bar = lv_bar_create(lv_scr_act());  // Create a bar object on the active screen
+  lv_obj_set_size(bar, 150, 20);                // Set the size of the bar (width, height)
+  lv_obj_align(bar, LV_ALIGN_CENTER, 0, 80);    // Align the bar to the center of the screen
+
+  lv_bar_set_range(bar, 0, 66);                 // Set the range of the bar to 0 to 80
+  lv_bar_set_value(bar, fuellstand, LV_ANIM_OFF);
+  return bar;
+}
+
+void clearBitmap(int sizeX, int sizeY, int posX, int posY) {
+  for (int i = 0; i < sizeY; i++) {
+    for (int j = 0; j < sizeX; j++) {
+      tft.drawPixel(j + posX, i + posY, 0x0000);
+    }
+  }
+}
+
+void tuerenAnpassen() {
+  int vorneLinks = 0;
+  int vorneRechts = 0;
+}
+void pageHome() {
+  if (objectArray[7] != NULL) {
+    lv_obj_del(objectArray[7]);
+    objectArray[7] = NULL;
+  }
+  clearBitmap(200,150,40,130);
+  drawGrayscaleBitmap(0, 0, stern, 240, 280,0);
+  delay(1000);
+  clearBitmap(240, 280, 0, 0);
+  stdOverlay(0);
+  drawGrayscaleBitmap(30,100,home_car,180,90,0);
+  pageName("Home");
+  
+  if(data_input.f_left_door==1){
+    drawGrayscaleBitmap(30,200,auf,37,44,0);
+  } else {
+    drawGrayscaleBitmap(30,200,zu,37,44,0);
+  }
+  lv_timer_handler();
+
+}
+
+void pageOne() {
+  clearBitmap(37, 44, 30, 200);
+  clearBitmap(180, 90, 30, 100);
+  drawGrayscaleBitmap(74, 63, tank, 114, 133,1);
+  objectArray[1] = barChart(data_input.tanklvl);
+  tft.setTextSize(2);
+  tft.setCursor(30,50);
+  tft.printf("%.1f l",data_input.tanklvl);
+  pageName("Tank Level");
+}
+
+
+void pageTwo() {
+  clearBitmap(210,20,30,50);
+  clearBitmap(164, 133, 74, 63);//evtl hier ändern
+  if (objectArray[1] != NULL) {
+    lv_obj_del(objectArray[1]);
+    objectArray[1] = NULL;
+  }
+  tft.fillScreen(TFT_BLACK); 
+  lv_timer_handler();
+  delay(10);
+  pageName("Windows & Doors");
+  lv_timer_handler();
+  delay(5);
+  drawGrayscaleBitmap(50, 50, Car_White, 150, 150,0);
+  if(data_input.rear_right == 0){//data_input.rear_right
+     draw8BitRGBBitmap(145, 129, RR, 10, 19);
+  }
+  if(data_input.rear_left == 0){//data_input.rear_left 
+    draw8BitRGBBitmap(95, 129, RL, 10, 19);  
+    }
+  if(data_input.front_left== 0){//data_input.front_left  
+    draw8BitRGBBitmap(95, 99, FL, 9, 29);
+  }
+  if(data_input.front_right == 0){//data_input.front_right 
+    draw8BitRGBBitmap(145,99, FR, 9,29);
+  }
+  if(data_input.f_left_door==1){
+    drawGrayscaleBitmap(30,200,auf,37,44,0);
+  } else {
+    drawGrayscaleBitmap(30,200,zu,37,44,0);
+  }
+  if(data_input.sunroof == 1){
+    draw8BitRGBBitmap(106, 106, _5, 38, 34);
+  }
+}
+
+void pageThree() {
+  clearBitmap(37, 44, 30, 200);
+  clearBitmap(200,40,30,180);
+  clearBitmap(150,150,50,50); //Auto soll 50 Pixel an den Rändern Platz haben
+  if (objectArray[2] != NULL) {
+    lv_obj_del(objectArray[2]);
+    objectArray[2] = NULL;
+    lv_obj_del(objectArray[5]);
+    objectArray[5] = NULL;
+  }
+  lv_timer_handler();
+  pageName("GPS & Kilometers");
+  tft.setTextSize(2);
+  tft.setCursor(35, 85);
+  tft.printf("Kilometer:"); 
+  tft.setCursor(35, 110);
+  tft.printf("%.1f km",data_input.kilometer);
+  tft.setCursor(35, 145);
+  tft.printf("Latitude: ");
+  tft.setCursor(35, 170);
+  tft.printf("%d Degr %d'%d'' N",data_input.latitude[0],data_input.latitude[1],data_input.latitude[2]);
+  tft.setCursor(35, 205);
+  tft.printf("Longitude:");
+  tft.setCursor(35, 230);
+  tft.printf("%d Degr %d'%d'' E",data_input.longitude[0],data_input.longitude[1],data_input.longitude[2]);
+  
+}
+void energySaveMode(){
+  clearBitmap(240, 280, 0, 0);
+}
+
+
+void showPage(int page) {
+  if (objectArray[3] != NULL) {
+    objectArray[3] = NULL;
+  }
+  if (objectArray[4] != NULL) {
+    objectArray[4] = NULL;
+  }
+  if (page == 0) {
+    pageHome();
+  } else if (page == 1) {
+    pageOne();
+  } else if (page == 2) {
+    pageTwo();
+  } else if (page == 3) {
+    pageThree();
+  } else if (page == 4) {
+    energySaveMode();
+  } 
+  if(page != 4){
+    stdOverlay(page);
+  }
+  lv_timer_handler();
+}
+
+
+void drawGrayscaleBitmap(int16_t x, int16_t y, const uint8_t *bitmap, int16_t w, int16_t h, bool converted) {
+  for (int16_t j = 0; j < h; j++) {
+    for (int16_t i = 0; i < w; i++) {
+      uint8_t gray = bitmap[j * w + i];
+      
+      // Invertiere die Graustufenwerte, wenn converted true ist
+      if (converted) {
+        gray = 255 - gray;  // Invertiert den Grauwert
+      }
+
+      uint16_t color = grayToRGB565(gray);
+      tft.drawPixel(x + i, y + j, color);
+    }
+  }
+}
+
+// Function to convert 8-bit grayscale to 16-bit RGB565
+uint16_t grayToRGB565(uint8_t gray) {
+  uint8_t r = gray;
+  uint8_t g = gray;
+  uint8_t b = gray;
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+void draw8BitRGBBitmap(int16_t x, int16_t y, const uint8_t *bitmap, int16_t w, int16_t h) {
+  for (int16_t j = 0; j < h; j++) {
+    for (int16_t i = 0; i < w; i++) {
+      uint8_t rgb = bitmap[j * w + i];
+      uint16_t color = rgb332ToRGB565(rgb);
+      tft.drawPixel(x + i, y + j, color);
+    }
+  }
+}
+
+uint16_t rgb332ToRGB565(uint8_t rgb332) {
+  // Extract the 3-3-2 bit components from the 8-bit RGB332 value
+  uint8_t r = (rgb332 >> 5) & 0x07;  // Red component (3 bits)
+  uint8_t g = (rgb332 >> 2) & 0x07;  // Green component (3 bits)
+  uint8_t b = rgb332 & 0x03;         // Blue component (2 bits)
+
+  // Convert 3-bit red to 5-bit red for RGB565
+  uint16_t r5 = (r * 255 / 7) >> 3;  // Scale 3-bit red to 5 bits
+  // Convert 3-bit green to 6-bit green for RGB565
+  uint16_t g6 = (g * 255 / 7) >> 2;  // Scale 3-bit green to 6 bits
+  // Convert 2-bit blue to 5-bit blue for RGB565
+  uint16_t b5 = (b * 255 / 3) >> 3;  // Scale 2-bit blue to 5 bits
+
+  // Combine the components into a 16-bit RGB565 value
+  return (r5 << 11) | (g6 << 5) | b5;
+}
+
+void setup() {
+  //Inits für WIFI, ESP Master Register,... ///////////////////////////////////
+  Serial.begin(115200); /*ESP32 init */
+
+  while (!Serial) {
+    delay(10);
+  }
+  pinMode(oeffnen, INPUT_PULLUP);
+  pinMode(schliessen, INPUT_PULLUP);
+
+  // Initialisiere das Wi-Fi-Modul
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+  // Initialisiere das ESP-NOW-Protokoll
+  if (!ESP_NOW.begin()) {
+    Serial.println("Failed to initialize ESP-NOW");
+    Serial.println("Rebooting in 5 seconds...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  // Registriere das neue Peer-Callback
+  ESP_NOW.onNewPeer(register_new_master, NULL);
+
+  Serial.println("Setup complete. Waiting for a master to broadcast a message...");
+  tft.printf("Waiting for Master...");
+
+
+  //Inits für Display und lv/////////////////////////////////////////
+  pinMode(buttonPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(buttonPin), handleInterrupt, RISING);
+
+  
+  tft.begin();
+  tft.setRotation(0);
+  tft.fillScreen(TFT_BLACK);
+  delay(100);
+
+  //lvgl init
+  lv_init();
+
+  lv_disp_draw_buf_init(&draw_buf, buf1, NULL, screenWidth * screenHeight / 13);
+
+  /* Initialize the display */
+  static lv_disp_drv_t disp_drv;
+  lv_disp_drv_init(&disp_drv);
+  /* Change the following line to your display resolution */
+  disp_drv.hor_res = screenWidth;
+  disp_drv.ver_res = screenHeight;
+  disp_drv.flush_cb = my_disp_flush;
+  disp_drv.draw_buf = &draw_buf;
+  lv_disp_drv_register(&disp_drv);
+
+  /* Initialize the (dummy) input device driver */
+  static lv_indev_drv_t indev_drv;
+  lv_indev_drv_init(&indev_drv);
+  indev_drv.type = LV_INDEV_TYPE_POINTER;
+  lv_indev_drv_register(&indev_drv);
+
+  tft.fillScreen(TFT_BLACK);
+
+  drawGrayscaleBitmap(0, 0, stern, 240, 280,0);
+  delay(1000);
+  clearBitmap(240, 280, 0, 0);
+  stdOverlay(0);
+
+  //overlay();
+  createPageName();
+
+  pageHome();
+  set_dark_mode_theme();
+  lv_timer_handler();
+  lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
+
+  Serial.println("Setup done");
+}
+
+
+void loop() {
+  /*tft.fillScreen(ST77XX_BLACK); 
+  tft.setCursor(10, 10);
+  tft.printf("Tanklevel=  %.1f\n", data_input.tanklvl);
+  tft.printf("Longitude: %.1f\t Latitude: %.1f\n", data_input.longitude, data_input.latitude);
+  tft.printf("Gefahrene Kilometer: %.1f\n", data_input.kilometer);
+  tft.printf("Uhrzeit: %d", data_input.time);
+  tft.printf("Sunroof: %d\n", data_input.sunroof);
+  tft.printf("Window rear right: %d\n", data_input.rear_right);
+  tft.printf("Window rear left: %d\n", data_input.rear_left);
+  tft.printf("Window front right: %d\n", data_input.front_right);
+  tft.printf("Window front left: %d \n", data_input.front_left);
+  tft.printf("%d; %d; %d; %d; %d; %d \n", data_input.f_left_door, data_input.f_right_door, data_input.r_left_door, data_input.r_right_door, data_input.trunk_lid, data_input.gas_door);
+  */
+  
+  buttonState = digitalRead(buttonPin);
+  /*
+  //If Abfragen zum Erkennen einer Fahrt
+  before = now;
+  now = 0;
+  if(data_input.kilometers != 0){
+    now = 1;
+  } 
+  if(before == 0 && now == 1){
+    SAVEBEGINNINGDATAFORLOG;
+  }
+  if(before == 1 && now == 0){
+    SAVEENDINGDATAFORLOG;
+    if(before.kilometer != now.kilometer){
+      AKTUALISIEREDATALOG;
+      }
+  }
+  */
+  if (buttonState == LOW) {
+    delay(300);
+    if (buttonState == LOW) {
+      if (page >= 4) {
+        page = 0;
+      } else {
+        page += 1;
+      }
+      showPage(page);
+    }
+  }
+  lv_timer_handler();
+  delay(5);
+
+  /********************Funktion der Taster um öffnen, schließen und softclose zu aktualisieren ********************/
+  //Funktion öffnen
+  if(digitalRead(oeffnen)==LOW){
+    data_input.f_left_door=1;
+    if(page==2){
+          pageTwo();
+          stdOverlay(page);
+          lv_timer_handler();
+          delay(5);
+        }
+  }
+
+  buttonState = digitalRead(schliessen);  // Liest den aktuellen Zustand des Schließtasters ein
+
+  /***************************Funktion für das gedrückthalten des Schließtasters************************************/
+  if (buttonState != lastButtonState) {  // Prüft, ob sich der Zustand des Tasters geändert hat
+    if (buttonState == LOW) {  // Wenn der Taster gerade gedrückt wurde
+      buttonPressTime = millis();  // Speichert den Zeitpunkt des Tastendrucks
+    } else {  // Wenn der Taster gerade losgelassen wurde
+      buttonReleaseTime = millis();  // Speichert den Zeitpunkt des Loslassens
+      unsigned long pressDuration = buttonReleaseTime - buttonPressTime;  // Berechnet die Dauer des Tastendrucks
+
+      if (pressDuration < longPressTime) {  // Kurzer Tastendruck (unterhalb der definierten Zeit)
+        data_input.f_left_door=0;  // Türzustand wird als geschlossen aufgenommen
+        if(page==2){
+          pageTwo();
+          stdOverlay(page);
+          lv_timer_handler();
+          delay(5);
+        }
+      } 
+      else {      // Langer Tastendruck (länger als die definierte Zeit)
+        data_input.rear_right=1;    //Fenster werden geschlossen
+        data_input.front_right=1;
+        data_input.rear_left=1;
+        data_input.front_left=1;
+        data_input.sunroof=2;       //Sunroof wird in Lifting Position
+       if(page==2){
+          //pageTwo();
+          //stdOverlay(page);
+          //lv_timer_handler();
+          //delay(5);
+        }
+      }
+    }
+    lastButtonState = buttonState;  // Aktualisiert den letzten Zustand des Tasters
+   
+  }
+
+  delay(10);
+}
