@@ -32,10 +32,11 @@ void loop() {
   if (!digitalRead(CAN0_INT)) {  // Wenn der CAN0_INT-Pin niedrig ist, lese den Empfangspuffer aus
     CAN0.readMsgBuf(&rxId, &len, rxBuf);  // Lese Daten: len = Datenlänge, buf = Datenbyte(s)
     
-    if ((rxId & 0x80000000) == 0x80000000)  // Bestimme, ob die ID Standard (11 Bit) oder erweitert (29 Bit) ist
+    if ((rxId & 0x80000000) == 0x80000000){  // Bestimme, ob die ID Standard (11 Bit) oder erweitert (29 Bit) ist
       sprintf(msgString, "Erweiterte ID: %.8lX  DLC: %1d  Daten:", (rxId & 0x1FFFFFFF), len);
-    else
+    } else {
       sprintf(msgString, "Standard ID: %.3lX       DLC: %1d  Daten:", rxId, len);
+    }
   
     Serial.print(msgString);
   
